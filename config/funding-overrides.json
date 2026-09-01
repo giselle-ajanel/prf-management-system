@@ -1,0 +1,44 @@
+{
+  "_readme": [
+    "Finance-editable funding sources, merged on top of the FY27 workbook.",
+    "",
+    "Use this when the master workbook lags reality: a partnership starts mid-year, or a partner's funding",
+    "has to be split by period before the workbook is reissued. Entries under 'additions' appear in the PRF",
+    "Funding Source dropdown for the named site, exactly like a workbook row, and are labelled",
+    "'Finance overrides' in the source column so they are easy to review and re-code later.",
+    "",
+    "'site' accepts a site key ('7704|Central High School'), a bare site code ('7704'), or a site name",
+    "('Central High School'). When it matches a known site the code, name and region are filled in from the",
+    "workbook; otherwise the value is used as the site name as given.",
+    "",
+    "'additions' starts empty on purpose. Period-specific names such as 'Camino Nuevo Summer 26' are real",
+    "accounting codes, and inventing them here would put codes into circulation that Finance never approved.",
+    "The '_example' block below is documentation only — it is never read. Copy an entry into 'additions'",
+    "once the code is confirmed.",
+    "",
+    "Changes take effect on the next server start (the workbook and this file are both cached per process).",
+    "Set FUNDING_OVERRIDES_PATH to point somewhere else."
+  ],
+
+  "additions": [],
+
+  "_example": [
+    {
+      "site": "Camino Nuevo",
+      "fundingSource": "Camino Nuevo 26-27",
+      "notes": "Regular school-year funding"
+    },
+    {
+      "site": "Camino Nuevo",
+      "fundingSource": "Camino Nuevo Summer 26",
+      "expenseType": "Program Supplies",
+      "notes": "Summer session only"
+    },
+    {
+      "site": "7704|Central High School",
+      "fundingSource": "Camino Nuevo 27-28",
+      "fundingSourceId": "CN2728",
+      "notes": "Next fiscal year — do not use before 07/01/2027"
+    }
+  ]
+}

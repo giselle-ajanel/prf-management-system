@@ -108,6 +108,29 @@ export const SCHOOL_TAB = "School Site Codes FY27";
 export const DEPARTMENT_GROUP = "--- DEPARTMENTS / OVERHEAD ---";
 /** Group heading for schools in the site combobox. */
 export const SCHOOL_GROUP = "--- SCHOOL SITES ---";
+/** Group heading for grant- and programme-funded entries. */
+export const GRANT_GROUP = "--- GRANTS & PROGRAMS ---";
+/** Group heading for rows Finance added ahead of the master workbook. */
+export const OVERRIDE_GROUP = "--- ADDED BY FINANCE ---";
+/** Group heading for anything from a source with no explicit mapping. */
+export const OTHER_GROUP = "--- OTHER SITES ---";
+
+/**
+ * Maps an accounting row's `source` tab to the heading it appears under.
+ *
+ * Sources with no entry fall back to {@link OTHER_GROUP} rather than vanishing — an earlier version built
+ * the list from two named tabs only, which silently hid every grant and department row.
+ */
+export const DEFAULT_SITE_GROUPS: Record<string, string> = {
+  [DEPARTMENT_TAB]: DEPARTMENT_GROUP,
+  "Dept Codes": DEPARTMENT_GROUP,
+  [SCHOOL_TAB]: SCHOOL_GROUP,
+  Grants: GRANT_GROUP,
+  "Finance overrides": OVERRIDE_GROUP,
+};
+
+/** Order the groups appear in. Anything unlisted sorts to the end. */
+export const SITE_GROUP_ORDER = [DEPARTMENT_GROUP, SCHOOL_GROUP, GRANT_GROUP, OVERRIDE_GROUP, OTHER_GROUP];
 
 /** Payment methods offered by the radio group. */
 export const DEFAULT_PAYMENT_TYPES: [string, string][] = [
@@ -128,6 +151,73 @@ export const DEFAULT_EXPENSE_TYPES = [
   "Other",
 ];
 
+/**
+ * Turns the accounting rows for one site into a single combobox option.
+ *
+ * `rows` is every row sharing a site key, because a site usually has several funding sources and the
+ * search text has to cover all of them — de-duplicating to one row made a site findable by whichever
+ * funding source happened to be last, and invisible under the others.
+ */
+export const toSiteOption = (rows: AccountingCode[], group: string): ComboOption => {
+  // Prefer a row that carries a numeric code as the representative; grants rows have none.
+  const site = rows.find(row => row.siteCode) || rows[0];
+  const fundingSources = [...new Set(rows.map(row => row.fundingSource).filter(Boolean))];
+  const regions = [...new Set(rows.map(row => row.region).filter(Boolean))];
+  const notes = [...new Set(rows.map(row => row.notes).filter(Boolean))];
+  return {
+    value: site.siteKey,
+    label: site.siteCode ? `${site.siteName} (${site.siteCode})` : site.siteName,
+    group,
+    search: [site.siteName, site.siteCode, ...fundingSources, ...regions].filter(Boolean).join(" "),
+    title: notes.length ? notes.join(" · ") : undefined,
+  };
+};
+
+/**
+ * Builds the grouped site list for the PRF editor.
+ *
+ * Every accounting row reaches the dropdown: rows are de-duplicated by site key, bucketed by whatever
+ * their `source` maps to, and sorted by name within each bucket. A source with no mapping lands under
+ * {@link OTHER_GROUP} rather than disappearing — an earlier version built the list from two named tabs,
+ * which silently hid every grant and department row once the workbook reader was widened.
+ *
+ * Exported so the grouping can be tested directly: the menu is only rendered while the combobox is open,
+ * so it never appears in a server-rendered snapshot.
+ */
+export function buildSiteOptions(
+  accounting: AccountingCode[],
+  siteGroups: Record<string, string> = DEFAULT_SITE_GROUPS,
+  groupOrder: string[] = SITE_GROUP_ORDER,
+): ComboOption[] {
+  // Collect every row per site, preserving workbook order so the first source seen decides the group.
+  const bySite = new Map<string, AccountingCode[]>();
+  for (const row of accounting) {
+    const rows = bySite.get(row.siteKey);
+    if (rows) rows.push(row);
+    else bySite.set(row.siteKey, [row]);
+  }
+  const grouped = new Map<string, AccountingCode[][]>();
+  for (const rows of bySite.values()) {
+    const group = siteGroups[rows[0].source] || OTHER_GROUP;
+    const bucket = grouped.get(group);
+    if (bucket) bucket.push(rows);
+    else grouped.set(group, [rows]);
+  }
+  const ordered = [...grouped.keys()].sort((a, b) => {
+    const ai = groupOrder.indexOf(a), bi = groupOrder.indexOf(b);
+    return (ai < 0 ? groupOrder.length : ai) - (bi < 0 ? groupOrder.length : bi) || a.localeCompare(b);
+  });
+  return [
+    { value: "", label: "-- select --" },
+    ...ordered.flatMap(group =>
+      grouped
+        .get(group)!
+        .sort((a, b) => a[0].siteName.localeCompare(b[0].siteName))
+        .map(rows => toSiteOption(rows, group)),
+    ),
+  ];
+}
+
 export type RequestFormProps = {
   form: PrfFormState;
   setForm: (form: PrfFormState) => void;
@@ -146,14 +236,10 @@ export type RequestFormProps = {
   onProceed: () => void;
   /** Policy banners. Defaults to {@link DEFAULT_PRF_RULES}. */
   rules?: PrfRule[];
-  /** Workbook tab identifying department/overhead rows. */
-  departmentTab?: string;
-  /** Workbook tab identifying school-site rows. */
-  schoolTab?: string;
-  /** Group heading for departments in the site combobox. */
-  departmentGroup?: string;
-  /** Group heading for schools in the site combobox. */
-  schoolGroup?: string;
+  /** Maps an accounting row's `source` to its group heading. Defaults to {@link DEFAULT_SITE_GROUPS}. */
+  siteGroups?: Record<string, string>;
+  /** Order the group headings appear in. Defaults to {@link SITE_GROUP_ORDER}. */
+  groupOrder?: string[];
   paymentTypes?: [string, string][];
   expenseTypes?: string[];
   /** Brand lines in the printed form header, one per line. */
@@ -200,10 +286,8 @@ export function RequestForm({
   onSave,
   onProceed,
   rules = DEFAULT_PRF_RULES,
-  departmentTab = DEPARTMENT_TAB,
-  schoolTab = SCHOOL_TAB,
-  departmentGroup = DEPARTMENT_GROUP,
-  schoolGroup = SCHOOL_GROUP,
+  siteGroups = DEFAULT_SITE_GROUPS,
+  groupOrder = SITE_GROUP_ORDER,
   paymentTypes = DEFAULT_PAYMENT_TYPES,
   expenseTypes = DEFAULT_EXPENSE_TYPES,
   brandLines = ["WOODCRAFT", "RANGERS"],
@@ -218,24 +302,7 @@ export function RequestForm({
   // Sites are keyed on Site Code + Site Name: the workbook reuses codes across different sites (2324 is both
   // "Lennox Middle School- LX" and "McKinley ES"), and keying on the code alone dropped one of each pair.
   const siteKey = form.siteKey || siteKeyOf(form.siteCode, form.school);
-  const toSiteOption = (site: AccountingCode, group: string): ComboOption => ({
-    value: site.siteKey,
-    label: `${site.siteName} (${site.siteCode})`,
-    group,
-    search: `${site.siteName} ${site.siteCode} ${site.fundingSource} ${site.region}`,
-    title: site.notes || undefined,
-  });
-  const uniqueSites = (tab: string) =>
-    [...new Map(accounting.filter(option => option.source === tab).map(option => [option.siteKey, option])).values()].sort(
-      (a, b) => a.siteName.localeCompare(b.siteName),
-    );
-  const departments = uniqueSites(departmentTab),
-    schools = uniqueSites(schoolTab);
-  const siteOptions: ComboOption[] = [
-    { value: "", label: "-- select --" },
-    ...departments.map(site => toSiteOption(site, departmentGroup)),
-    ...schools.map(site => toSiteOption(site, schoolGroup)),
-  ];
+  const siteOptions = buildSiteOptions(accounting, siteGroups, groupOrder);
   const siteRows = accounting.filter(option => option.siteKey === siteKey);
   const fundingRows = [...new Map(siteRows.map(option => [option.fundingSource, option])).values()].filter(
       row => row.fundingSource,

@@ -125,6 +125,15 @@ export const sampleAccounting: AccountingCode[] = [
   { source: "School Site Codes FY27", fundingSource: "88STEM — STEM Enrichment", fundingSourceId: "88STEM", siteCode: "7704", siteName: "Central High School", siteKey: "7704|Central High School", region: "South", expenseType: "Program Supplies", status: "Active", notes: "STEM enrichment site", availability: "active" },
   { source: "School Site Codes FY27", fundingSource: "ELOP27 — Expanded Learning", fundingSourceId: "ELOP27", siteCode: "7711", siteName: "Roosevelt Elementary", siteKey: "7711|Roosevelt Elementary", region: "North", expenseType: "Program Supplies", status: "Active", notes: "", availability: "active" },
   { source: "School Site Codes FY27", fundingSource: "ELOP27 — Expanded Learning", fundingSourceId: "ELOP27", siteCode: "7732", siteName: "Harbor STEM Academy", siteKey: "7732|Harbor STEM Academy", region: "Harbor", expenseType: "Transportation", status: "Active", notes: "Expiring mid-year", availability: "expiring" },
+  // A grant row: period-formatted funding name, no numeric site code — the shape the Grants tab produces.
+  { source: "Grants", fundingSource: "TUPE 25-26", fundingSourceId: "LAU26Y06", siteCode: "", siteName: "TUPE 25-26", siteKey: "|TUPE 25-26", region: "", expenseType: "", status: "Active", notes: "", availability: "active" },
+  // A department row from the Dept Codes tab.
+  { source: "Dept Codes", fundingSource: "Marketing Dept", fundingSourceId: "", siteCode: "9907", siteName: "Marketing", siteKey: "9907|Marketing", region: "Woodcraft", expenseType: "Program Supplies, Lunch & Meeting", status: "Active", notes: "", availability: "active" },
+  // A Finance override adding a period-specific funding source to a site the workbook already knows.
+  // It merges into that site rather than creating a second entry, and its name joins the site's search text.
+  { source: "Finance overrides", fundingSource: "Camino Nuevo Summer 26", fundingSourceId: "", siteCode: "7704", siteName: "Central High School", siteKey: "7704|Central High School", region: "South", expenseType: "Program Supplies", status: "Active", notes: "Added by Finance override", availability: "active" },
+  // A Finance override introducing a site the workbook has never seen — the mid-year partnership case.
+  { source: "Finance overrides", fundingSource: "Vista Verde 26-27", fundingSourceId: "", siteCode: "", siteName: "Vista Verde Academy", siteKey: "|Vista Verde Academy", region: "East", expenseType: "", status: "Active", notes: "New partnership, added by Finance override", availability: "active" },
 ];
 
 /** Empty filter state for the Finance register. */
