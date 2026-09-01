@@ -1,0 +1,10 @@
+/* Custom entry and period tags in the searchable combobox.
+ *
+ * Appended as the last layer so these rules sit after the base combobox styles in layer 20. */
+.comboMenu button{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.comboTag{flex:none;padding:2px 7px;border-radius:999px;background:var(--mint);color:var(--teal-dark);font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+.comboMenu button.customRow{color:var(--coral);font-weight:750}
+.comboMenu button.customRow .comboTag{background:var(--coral);color:#fff}
+.comboMenu button.selected .comboTag{background:var(--yellow);color:var(--ink)}
+.customBadge{margin-left:7px;padding:2px 7px;border-radius:999px;background:var(--coral);color:#fff;font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.comboField small{display:flex;align-items:center}

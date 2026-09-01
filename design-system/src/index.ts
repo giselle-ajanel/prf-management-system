@@ -31,6 +31,46 @@ export {
   monthLabel,
 } from "./utils";
 
+export {
+  FUNDING_PERIODS,
+  PERIOD_EXEMPT,
+  ALREADY_PERIODIC,
+  isPeriodExempt,
+  expandFundingPeriods,
+  fundingChoicesFor,
+  buildFundingOptions,
+  type FundingChoice,
+} from "./funding";
+
+export {
+  notify,
+  setTransport,
+  currentTransport,
+  noopTransport,
+  unreadCount,
+  markAllRead,
+  relativeTime,
+  type PrfNotification,
+  type NotificationKind,
+  type NotificationAudience,
+  type NotificationTransport,
+} from "./notifications";
+
+export {
+  EXPORT_COLUMNS,
+  PAYMENT_LABELS,
+  csvField,
+  lineItemsCell,
+  submissionDate,
+  exportRow,
+  toCsv,
+  exportFilename,
+  downloadCsv,
+} from "./export";
+
+export { NotificationBell, type NotificationBellProps } from "./components/NotificationBell";
+export { ExportButton, type ExportButtonProps } from "./components/ExportButton";
+export { PrfNumber, type PrfNumberProps } from "./components/PrfNumber";
 export { StatusPill, type StatusPillProps } from "./components/StatusPill";
 export { PageHead, type PageHeadProps } from "./components/PageHead";
 export {
@@ -41,7 +81,7 @@ export {
   type MonthOption,
 } from "./components/MonthFilter";
 export { SignatureField, type SignatureFieldProps, type SignatureMode } from "./components/SignatureField";
-export { SearchableCombobox, type SearchableComboboxProps } from "./components/SearchableCombobox";
+export { SearchableCombobox, CUSTOM_OPTION, type SearchableComboboxProps } from "./components/SearchableCombobox";
 export { Summary, type SummaryProps } from "./components/Summary";
 export { RequestTrail, type RequestTrailProps } from "./components/RequestTrail";
 export { RequestModal, type RequestModalProps } from "./components/RequestModal";

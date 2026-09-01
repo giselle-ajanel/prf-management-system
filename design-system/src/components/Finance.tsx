@@ -2,7 +2,9 @@
 
 import type { Request, Status } from "../types";
 import { money } from "../utils";
+import { ExportButton } from "./ExportButton";
 import { PageHead } from "./PageHead";
+import { PrfNumber } from "./PrfNumber";
 import { StatusPill } from "./StatusPill";
 import { DEFAULT_MONTHS, type MonthOption } from "./MonthFilter";
 
@@ -75,6 +77,13 @@ export function Finance({
         eyebrow="Finance & Accounting"
         title="Finance Command Center"
         copy="District → School → Individual PRF. Search every cycle from one controlled register."
+        action={
+          <ExportButton
+            requests={requests}
+            filters={{ status: filters.status, site: filters.school || filters.district, month: filters.month }}
+            prefix="PRF-finance"
+          />
+        }
       />
       <div className="financeMetrics">
         <article>
@@ -178,7 +187,7 @@ export function Finance({
               {requests.map(r => (
                 <tr key={r.id}>
                   <td>
-                    <strong>{r.id}</strong>
+                    <PrfNumber id={r.id} paymentType={r.paymentType} />
                     <small>{r.cycle}</small>
                   </td>
                   <td>

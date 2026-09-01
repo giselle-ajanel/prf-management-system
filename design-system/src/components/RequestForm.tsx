@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import type { FormEvent } from "react";
 import type { AccountingCode, ComboOption } from "../types";
 import { amountOf, isNegative, money, siteKeyOf, vague } from "../utils";
+import { buildFundingOptions, fundingChoicesFor } from "../funding";
 import { RuleBanner } from "./RuleBanner";
 import { SearchableCombobox } from "./SearchableCombobox";
 import { SignatureField, type SignatureMode } from "./SignatureField";
@@ -51,6 +52,15 @@ export type PrfFormState = {
   manualSite: string;
   manualFunding: string;
   justification: string;
+  /**
+   * True when the site was typed rather than chosen from the accounting workbook.
+   *
+   * Carried onto the saved request and into the audit trail so Finance can find new partnerships that
+   * still need a real site code issued.
+   */
+  customSite?: boolean;
+  /** True when the funding source was typed rather than chosen. */
+  customFunding?: boolean;
 };
 
 /** What a rule sees when deciding whether it applies. */
@@ -304,18 +314,8 @@ export function RequestForm({
   const siteKey = form.siteKey || siteKeyOf(form.siteCode, form.school);
   const siteOptions = buildSiteOptions(accounting, siteGroups, groupOrder);
   const siteRows = accounting.filter(option => option.siteKey === siteKey);
-  const fundingRows = [...new Map(siteRows.map(option => [option.fundingSource, option])).values()].filter(
-      row => row.fundingSource,
-    ),
-    fundingOptions: ComboOption[] = [
-      { value: "", label: "-- select --" },
-      ...fundingRows.map(row => ({
-        value: row.fundingSource,
-        label: row.fundingSource,
-        search: `${row.fundingSource} ${row.siteName} ${row.siteCode}`,
-        title: row.notes || undefined,
-      })),
-    ];
+  // Each of the site's funding sources is offered in every period it can be drawn in.
+  const fundingOptions = buildFundingOptions(siteRows, form.fundingCode);
   const expenseOptions: ComboOption[] = expenseTypes.map(value => ({ value, label: value }));
   const update = (values: Partial<PrfFormState>) => setForm({ ...form, ...values });
   // Selecting a site instantly fills Funding Source from that exact workbook row; when the site carries more
@@ -323,14 +323,44 @@ export function RequestForm({
   const selectSite = (nextKey: string) => {
     const choices = accounting.filter(option => option.siteKey === nextKey),
       site = choices[0];
+    // Pre-fill funding with the site's first available choice, which after expansion is a period variant.
+    const [firstChoice] = fundingChoicesFor(choices);
     update({
       siteKey: nextKey,
       siteCode: site?.siteCode || "",
       siteName: site?.siteName || "",
       school: site?.siteName || "",
-      fundingCode: site?.fundingSource || "",
+      fundingCode: firstChoice?.value || "",
       region: site?.region || "",
+      customSite: false,
+      customFunding: false,
     });
+  };
+
+  /**
+   * Records a site the requester typed because it is not in the workbook yet.
+   *
+   * There is no site code to assign — Finance issues those — so the entry is flagged instead, and the
+   * funding field is unlocked for free text since a site the workbook has never seen has no funding rows.
+   */
+  const enterCustomSite = (name: string) => {
+    const typed = name.trim();
+    if (!typed) return;
+    update({
+      siteKey: siteKeyOf("", typed),
+      siteCode: "",
+      siteName: typed,
+      school: typed,
+      fundingCode: "",
+      region: "",
+      customSite: true,
+      customFunding: false,
+    });
+  };
+
+  const enterCustomFunding = (name: string) => {
+    const typed = name.trim();
+    if (typed) update({ fundingCode: typed, customFunding: true });
   };
   const updateLine = (index: number, key: string, value: string) => {
     const lineItems = form.lineItems.map((line, i) => (i === index ? { ...line, [key]: value } : line)),
@@ -354,7 +384,8 @@ export function RequestForm({
   const active = rules.filter(rule => rule.applies({ form, siteName, lineItems: form.lineItems }));
   const blocked = active.some(rule => rule.tone === "blocked");
   const canSubmit = Boolean(
-    form.siteCode &&
+    // A custom site has no code yet, so the site name stands in for it.
+    (form.siteCode || (form.customSite && form.siteName)) &&
       form.fundingCode &&
       form.paymentType &&
       form.vendor &&
@@ -424,17 +455,41 @@ export function RequestForm({
               value={siteKey}
               options={siteOptions}
               onChange={selectSite}
-              placeholder="Search all sites by name or code…"
+              allowCustom
+              customLabel="+ Enter Custom / Unlisted Site"
+              onCustom={enterCustomSite}
+              isCustom={Boolean(form.customSite)}
+              customTag="custom site"
+              placeholder="Search all sites by name or code, or type an unlisted one…"
             />
             <SearchableCombobox
               label="FUNDING SOURCE"
               value={form.fundingCode}
               options={fundingOptions}
-              onChange={value => update({ fundingCode: value })}
-              disabled={!siteKey}
-              placeholder={siteKey ? "Search funding source…" : "Select a site first"}
+              onChange={value => update({ fundingCode: value, customFunding: false })}
+              // A custom site has no workbook funding rows, so the field is unlocked for free text.
+              allowCustom
+              customLabel="+ Enter Custom / Unlisted Funding Source"
+              onCustom={enterCustomFunding}
+              isCustom={Boolean(form.customFunding)}
+              customTag="custom funding"
+              disabled={!siteKey && !form.customSite}
+              placeholder={
+                form.customSite
+                  ? "Type the funding source for this new partnership…"
+                  : siteKey
+                    ? "Search funding source…"
+                    : "Select a site first"
+              }
             />
             <small>{accountingStatus}</small>
+            {form.customSite && (
+              <RuleBanner
+                tone="info"
+                title="Unlisted site"
+                message={`"${form.siteName}" is not in the FY27 workbook. It will be flagged for Finance to review and assign a site code before this PRF can be coded.`}
+              />
+            )}
           </section>
           <fieldset className="paymentTypes">
             <legend>PAYMENT TYPE — SELECT ONE</legend>

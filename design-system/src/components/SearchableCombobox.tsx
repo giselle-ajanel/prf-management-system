@@ -15,7 +15,28 @@ export type SearchableComboboxProps = {
   disabled?: boolean;
   /** Input placeholder. Defaults to `Search {label}…`. */
   placeholder?: string;
+  /**
+   * Lets the field accept a value that is not in `options`.
+   *
+   * The list gains a standing "enter custom" row, and typing something unmatched offers to use the text
+   * as typed. This is what makes a mid-year partnership usable before it reaches the master workbook.
+   */
+  allowCustom?: boolean;
+  /** Label of the standing custom row. */
+  customLabel?: string;
+  /**
+   * Called instead of `onChange` when a custom value is committed, so the caller can record that the
+   * value was typed rather than chosen. Falls back to `onChange` when not supplied.
+   */
+  onCustom?: (value: string) => void;
+  /** Badge shown on the field when the current value was entered by hand. */
+  customTag?: string;
+  /** True when the current value is a custom entry — drives the badge and the free-text input mode. */
+  isCustom?: boolean;
 };
+
+/** Sentinel value for the standing "enter a custom value" row. */
+export const CUSTOM_OPTION = "__custom__";
 
 /**
  * Type-ahead select with grouped options, rendered through a portal so the menu escapes
@@ -42,6 +63,11 @@ export function SearchableCombobox({
   onChange,
   disabled = false,
   placeholder,
+  allowCustom = false,
+  customLabel = "+ Enter Custom / Unlisted Site",
+  onCustom,
+  customTag = "custom",
+  isCustom = false,
 }: SearchableComboboxProps) {
   // An empty `value` means nothing is chosen, so it must not resolve to the "-- select --" sentinel row —
   // that would render the sentinel's label as the field's text and typing would append to it.
@@ -87,12 +113,37 @@ export function SearchableCombobox({
   }, [open]);
 
   const term = query.trim().toLowerCase();
-  const filtered = options.filter(
+  const matched = options.filter(
     option => !term || `${option.label} ${option.search || ""}`.toLowerCase().includes(term),
   );
+  const typed = query.trim();
+  const commitCustom = (text: string) => {
+    const next = text.trim();
+    if (!next) return;
+    (onCustom || onChange)(next);
+    setQuery("");
+    setOpen(false);
+  };
+  // With custom entry on, the list gains a standing row, and typing something unmatched offers the text
+  // as-is. The exact-match guard stops "use X" appearing when X is already a real option.
+  const exactMatch = options.some(option => option.label.toLowerCase() === typed.toLowerCase());
+  const customRows: ComboOption[] = allowCustom
+    ? typed && !exactMatch
+      ? [{ value: CUSTOM_OPTION, label: `+ Use "${typed}"`, group: "", tag: customTag }]
+      : !typed
+        ? [{ value: CUSTOM_OPTION, label: customLabel, group: "" }]
+        : []
+    : [];
+  const filtered = [...customRows, ...matched];
   const groups = [...new Set(filtered.map(option => option.group || ""))];
 
   const choose = (option: ComboOption) => {
+    if (option.value === CUSTOM_OPTION) {
+      // The standing row with nothing typed just parks the field in free-text mode.
+      if (typed) commitCustom(typed);
+      else { setOpen(false); inputRef.current?.focus(); }
+      return;
+    }
     onChange(option.value);
     setQuery("");
     setOpen(false);
@@ -141,7 +192,11 @@ export function SearchableCombobox({
                 type="button"
                 role="option"
                 aria-selected={option.value === value}
-                className={option.value === value ? "selected" : ""}
+                className={
+                  [option.value === value ? "selected" : "", option.value === CUSTOM_OPTION ? "customRow" : ""]
+                    .filter(Boolean)
+                    .join(" ")
+                }
                 key={`${group}-${option.value}`}
                 title={option.title}
                 onPointerDown={event => {
@@ -150,6 +205,7 @@ export function SearchableCombobox({
                 }}
               >
                 {option.label}
+                {option.tag && <small className="comboTag">{option.tag}</small>}
               </button>
             ))}
         </div>
@@ -158,9 +214,16 @@ export function SearchableCombobox({
     </div>
   );
 
+  // A value that is not in `options` still has to display — that is the whole point of custom entry, and
+  // it also keeps an older request readable after its funding source has been renamed or period-split.
+  const shownValue = selected?.label ?? (value || "");
+
   return (
     <div className="comboField">
-      <small>{label}</small>
+      <small>
+        {label}
+        {isCustom && <span className="customBadge">{customTag}</span>}
+      </small>
       <div className={`combo ${open ? "open" : ""}`}>
         <input
           ref={inputRef}
@@ -168,14 +231,29 @@ export function SearchableCombobox({
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"
-          value={open ? query : selected?.label || ""}
+          value={open ? query : shownValue}
           disabled={disabled}
-          placeholder={open && selected ? selected.label : placeholder || `Search ${label.toLowerCase()}…`}
+          placeholder={
+            open && shownValue
+              ? shownValue
+              : placeholder || (allowCustom ? `Search or type ${label.toLowerCase()}…` : `Search ${label.toLowerCase()}…`)
+          }
           onFocus={openMenu}
           onClick={openMenu}
           onKeyDown={keys}
           onChange={event => onType(event.target.value)}
-          onBlur={() => window.setTimeout(() => { setOpen(false); setQuery(""); }, 180)}
+          onBlur={() =>
+            window.setTimeout(() => {
+              // Typing a name and clicking away is how the brief describes entering an unlisted site, so
+              // an unmatched entry is committed rather than discarded.
+              if (allowCustom && query.trim() && !options.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
+                commitCustom(query);
+                return;
+              }
+              setOpen(false);
+              setQuery("");
+            }, 180)
+          }
         />
         <span aria-hidden="true">⌄</span>
         {open && createPortal(menu, document.body)}

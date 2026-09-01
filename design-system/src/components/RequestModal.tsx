@@ -2,6 +2,7 @@
 
 import type { Request } from "../types";
 import { money } from "../utils";
+import { PrfNumber } from "./PrfNumber";
 import { StatusPill } from "./StatusPill";
 
 export type RequestModalProps = {
@@ -69,8 +70,9 @@ export function RequestModal({
           <div>
             <small>CODING</small>
             <strong>
-              {request.siteCode} · {request.fundingCode}
+              {request.siteCode || (request.customSite ? "UNLISTED" : "")} · {request.fundingCode}
             </strong>
+            <PrfNumber id={request.id} paymentType={request.paymentType} verbose />
           </div>
         </div>
         <div className="detailColumns">

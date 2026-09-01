@@ -34,6 +34,8 @@ export type AppHeaderProps = {
   roles?: string[];
   onRoleChange?: (role: string) => void;
   roleLabel?: string;
+  /** Slot before the profile cluster — the notification bell lives here. */
+  actions?: ReactNode;
 };
 
 /**
@@ -73,6 +75,7 @@ export function AppHeader({
   roles,
   onRoleChange,
   roleLabel = "Demo role",
+  actions,
 }: AppHeaderProps) {
   return (
     <header className="topbar">
@@ -103,6 +106,7 @@ export function AppHeader({
         ))}
       </nav>
       <div className="profile">
+        {actions}
         <span className="avatar">{initials}</span>
         <span>
           <strong>

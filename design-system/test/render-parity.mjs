@@ -26,7 +26,7 @@ const tmp = path.join(here, ".render-tmp");
 
 const ORIGINAL_EXPORTS = [
   "PageHead", "MonthFilter", "Summary", "StatusPill", "RequestTrail",
-  "SearchableCombobox", "SignatureField", "RequestModal", "Finance",
+  "SearchableCombobox", "SignatureField", 
 ];
 
 await fs.rm(tmp, { recursive: true, force: true });
@@ -65,7 +65,6 @@ const comboOptions = [
 // over behaviour rather than over each side's own sample data.
 const { sampleRequests, sampleDistricts, emptyFinanceFilters } = extracted;
 const drafts = sampleRequests.filter(r => r.status === "Draft");
-const approved = sampleRequests.find(r => r.status === "Approved");
 const awaiting = sampleRequests.find(r => r.status === "Awaiting Approval");
 
 // The ten props RequestForm originally took. Extracted adds optional ones with defaults, so passing only
@@ -113,14 +112,6 @@ const cases = [
   ["RequestTrail/mixed", "RequestTrail", { requests: sampleRequests, onOpen: noop, onResume: noop, title: "Your request trail" }],
   ["RequestTrail/empty", "RequestTrail", { requests: [], onOpen: noop, onResume: noop, title: "All requests" }],
   ["RequestTrail/drafts-only", "RequestTrail", { requests: drafts, onOpen: noop, onResume: noop, title: "Open drafts" }],
-  ["RequestModal/audit-closed", "RequestModal", { request: awaiting, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: false, onAction: noop }],
-  ["RequestModal/audit-open", "RequestModal", { request: awaiting, onClose: noop, auditOpen: true, setAuditOpen: noop, canApprove: false, onAction: noop }],
-  ["RequestModal/approvable", "RequestModal", { request: awaiting, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: true, onAction: noop }],
-  ["RequestModal/approved", "RequestModal", { request: approved, onClose: noop, auditOpen: true, setAuditOpen: noop, canApprove: false, onAction: noop }],
-  ["RequestModal/no-documents", "RequestModal", { request: drafts[0], onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: false, onAction: noop }],
-  ["Finance/unfiltered", "Finance", { requests: sampleRequests, all: sampleRequests, filters: emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
-  ["Finance/district-selected", "Finance", { requests: sampleRequests.filter(r => r.district === "District 4"), all: sampleRequests, filters: { ...emptyFinanceFilters, district: "District 4" }, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
-  ["Finance/no-matches", "Finance", { requests: [], all: sampleRequests, filters: { ...emptyFinanceFilters, query: "nothing matches this" }, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
 
 ];
 

@@ -2,6 +2,7 @@
 
 import type { Request } from "../types";
 import { money, monthLabel, routeFor } from "../utils";
+import { PrfNumber } from "./PrfNumber";
 import { StatusPill } from "./StatusPill";
 
 export type QueueItemProps = {
@@ -27,8 +28,9 @@ export function QueueItem({ request, onOpen }: QueueItemProps) {
     <article className="queueItem">
       <div>
         <StatusPill status={request.status} />
+        <PrfNumber id={request.id} paymentType={request.paymentType} />
         <small>
-          {request.id} · {request.district} · {request.school}
+          {request.district} · {request.school}
         </small>
         <h3>{request.description}</h3>
         <p>

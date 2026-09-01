@@ -40,6 +40,8 @@ const withLine = (form, index, patch) => ({
   lineItems: form.lineItems.map((line, i) => (i === index ? { ...line, ...patch } : line)),
 });
 
+const awaiting = ds.sampleRequests.find(r => r.status === "Awaiting Approval");
+
 const formBase = {
   setForm: noop, notice: "", accounting: [], accountingStatus: "Loading every active FY27 site…",
   lastSaved: "", dirty: false, onClose: noop, onSave: noop, onProceed: noop,
@@ -47,6 +49,22 @@ const formBase = {
 
 // ---- cases ---------------------------------------------------------------------------------------
 const cases = [
+  ["RequestModal.audit-closed", () => createElement(ds.RequestModal, { request: awaiting, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: false, onAction: noop })],
+  ["RequestModal.audit-open", () => createElement(ds.RequestModal, { request: awaiting, onClose: noop, auditOpen: true, setAuditOpen: noop, canApprove: false, onAction: noop })],
+  ["RequestModal.approvable", () => createElement(ds.RequestModal, { request: awaiting, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: true, onAction: noop })],
+  ["RequestModal.divvy", () => createElement(ds.RequestModal, { request: { ...awaiting, paymentType: "divvy" }, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: true, onAction: noop })],
+  ["RequestModal.custom-site", () => createElement(ds.RequestModal, { request: { ...awaiting, siteCode: "", customSite: true }, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: false, onAction: noop })],
+  ["Finance.unfiltered", () => createElement(ds.Finance, { requests: ds.sampleRequests, all: ds.sampleRequests, filters: ds.emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
+  ["Finance.no-matches", () => createElement(ds.Finance, { requests: [], all: ds.sampleRequests, filters: { ...ds.emptyFinanceFilters, query: "zzz" }, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
+  ["QueueItem.awaiting", () => createElement(ds.QueueItem, { request: awaiting, onOpen: noop })],
+  ["QueueItem.divvy", () => createElement(ds.QueueItem, { request: { ...awaiting, paymentType: "divvy" }, onOpen: noop })],
+  ["PrfNumber.plain", () => createElement(ds.PrfNumber, { id: "PRF-FY27-0001" })],
+  ["PrfNumber.divvy", () => createElement(ds.PrfNumber, { id: "PRF-FY27-0009", paymentType: "divvy" })],
+  ["PrfNumber.verbose", () => createElement(ds.PrfNumber, { id: "PRF-FY27-0009", paymentType: "direct", verbose: true })],
+  ["ExportButton.rows", () => createElement(ds.ExportButton, { requests: ds.sampleRequests, filters: { status: "Approved", site: "Beachy" } })],
+  ["ExportButton.empty", () => createElement(ds.ExportButton, { requests: [] })],
+  ["NotificationBell.empty", () => createElement(ds.NotificationBell, { notifications: [] })],
+  ["RequestForm.custom-site", () => createElement(ds.RequestForm, { ...formBase, form: { ...ds.filledPrfForm(), customSite: true, siteCode: "", siteName: "Vista Verde Academy", school: "Vista Verde Academy" } })],
   ["RequestForm.blank", () => createElement(ds.RequestForm, { ...formBase, form: ds.emptyPrfForm() })],
   ["RequestForm.filled", () => createElement(ds.RequestForm, { ...formBase, form: ds.filledPrfForm(), accounting: ds.sampleAccounting })],
   ["RequestForm.dirty", () => createElement(ds.RequestForm, { ...formBase, form: ds.filledPrfForm(), dirty: true })],

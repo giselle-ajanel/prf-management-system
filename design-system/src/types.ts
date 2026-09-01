@@ -51,6 +51,18 @@ export type Request = {
   audit: AuditEvent[];
   documents: string[];
   approvedAt?: string;
+  /** ISO timestamp of submission for approval. Distinct from `updated`, which is display text. */
+  submittedAt?: string;
+  /** How the purchase is paid: `divvy`, `systems` or `direct`. Divvy rows reconcile against the card statement. */
+  paymentType?: string;
+  /** Dominant expense category across the line items, carried for reporting. */
+  expenseType?: string;
+  /** Set when the site was typed rather than chosen from the workbook — Finance must assign a real code. */
+  customSite?: boolean;
+  /** Set when the funding source was typed rather than chosen. */
+  customFunding?: boolean;
+  /** Reviewer's comment when a request is returned for revision. */
+  reviewNote?: string;
   requesterSigned?: boolean;
   approverSigned?: boolean;
   /** @deprecated Migrated into `requesterSigned`; retained so stored records still parse. */
@@ -82,4 +94,6 @@ export type ComboOption = {
   group?: string;
   search?: string;
   title?: string;
+  /** Small badge shown after the label — a period, or a note that the value was entered by hand. */
+  tag?: string;
 };

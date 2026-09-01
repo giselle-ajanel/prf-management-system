@@ -87,3 +87,48 @@ if (failures.length) {
   process.exit(1);
 }
 console.log(`\n  ✓ site options: ${options.filter(o => o.value).length} sites across ${groups.length} groups, all sources represented\n`);
+
+// ---- funding period expansion --------------------------------------------------------------------
+const fundingFailures = [];
+const fcheck = (name, condition, detail = "") => {
+  if (!condition) fundingFailures.push(`${name}${detail ? ` — ${detail}` : ""}`);
+};
+
+fcheck("plain source expands to three periods",
+  JSON.stringify(ds.expandFundingPeriods("Camino Nuevo")) ===
+  JSON.stringify(["Camino Nuevo Summer 26", "Camino Nuevo 26-27", "Camino Nuevo 27-28"]),
+  JSON.stringify(ds.expandFundingPeriods("Camino Nuevo")));
+
+for (const exempt of ["WRSHARED", "wrshared", "Woodcraft Rangers", "Woodcraft"]) {
+  fcheck(`${exempt} is never period-split`,
+    JSON.stringify(ds.expandFundingPeriods(exempt)) === JSON.stringify([exempt]),
+    JSON.stringify(ds.expandFundingPeriods(exempt)));
+}
+
+// A name that already states its period must not be expanded again into "TUPE 25-26 Summer 26".
+for (const dated of ["TUPE 25-26", "Central 26-27", "Los Nietos Summer", "Play Equity Fund Girls Sports 22-25"]) {
+  fcheck(`${dated} is left alone`,
+    JSON.stringify(ds.expandFundingPeriods(dated)) === JSON.stringify([dated]),
+    JSON.stringify(ds.expandFundingPeriods(dated)));
+}
+
+// Site-scoped funding: every non-exempt source for the site appears in all three periods.
+const centralRows = ds.sampleAccounting.filter(r => r.siteKey === "7704|Central High School");
+const fundingOpts = ds.buildFundingOptions(centralRows);
+const labels = fundingOpts.filter(o => o.value).map(o => o.label);
+fcheck("site funding is period-expanded", labels.some(l => l.endsWith("Summer 26")) && labels.some(l => l.endsWith("26-27")) && labels.some(l => l.endsWith("27-28")), JSON.stringify(labels));
+fcheck("generated variants are tagged", fundingOpts.filter(o => o.tag).length >= 3, JSON.stringify(fundingOpts.map(o => o.tag)));
+fcheck("no bare unexpanded base remains for an expandable source",
+  !labels.includes("88STEM — STEM Enrichment"), JSON.stringify(labels));
+
+// A value the request already holds stays selectable even when it is not in the site's list.
+const withCurrent = ds.buildFundingOptions(centralRows, "Legacy Fund 24-25");
+fcheck("existing value stays selectable", withCurrent.some(o => o.value === "Legacy Fund 24-25"));
+fcheck("existing value is marked as entered", withCurrent.find(o => o.value === "Legacy Fund 24-25")?.tag === "as entered");
+
+if (fundingFailures.length) {
+  console.error(`\n  ✗ ${fundingFailures.length} funding check(s) FAILED\n`);
+  fundingFailures.forEach(l => console.error(`    ${l}`));
+  process.exit(1);
+}
+console.log(`  ✓ funding periods: ${labels.length} choices for one site, exemptions and existing periods respected\n`);

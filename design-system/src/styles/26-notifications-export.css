@@ -1,0 +1,38 @@
+/* Notification bell, its dropdown centre, the export button, and PRF-number emphasis. */
+
+.notificationBell{position:relative;display:flex;align-items:center}
+.bellButton{position:relative;width:42px;height:42px;display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;background:var(--paper);box-shadow:none;padding:0;font-size:16px;line-height:1}
+.bellButton:hover{background:var(--beige)}
+.bellBadge{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;display:grid;place-items:center;border-radius:999px;background:var(--coral);color:#fff;font-size:10px;font-weight:800;line-height:1}
+.bellPanel{position:absolute;top:52px;right:0;z-index:60;width:min(380px,calc(100vw - 32px));max-height:min(460px,70vh);overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.bellPanel header{position:sticky;top:0;display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:14px 16px;background:var(--paper);border-bottom:1px solid var(--line)}
+.bellPanel header strong{font-size:13px}
+.bellPanel header small{color:var(--muted);font-size:11px}
+.bellPanel ul{margin:0;padding:0;list-style:none}
+.bellPanel li{border-bottom:1px solid var(--line)}
+.bellPanel li:last-child{border-bottom:0}
+.bellPanel li.unread{background:#f6fbfb}
+.bellPanel li button{width:100%;display:flex;gap:11px;align-items:flex-start;padding:13px 16px;border:0;border-radius:0;background:none;box-shadow:none;text-align:left}
+.bellPanel li button:hover{background:var(--beige)}
+.bellIcon{flex:none;width:26px;height:26px;display:grid;place-items:center;border-radius:50%;font-size:12px;font-weight:800;color:var(--ink)}
+.bellIcon.kind-submitted{background:var(--yellow)}
+.bellIcon.kind-approved{background:var(--mint)}
+.bellIcon.kind-returned{background:var(--coral);color:#fff}
+.bellIcon.kind-revision{background:#c9e2e5}
+.bellText{display:grid;gap:3px;min-width:0}
+.bellText strong{font-size:12px;line-height:1.35}
+.bellText span{color:var(--muted);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.bellText small{color:var(--muted);font-size:10px}
+.bellEmpty{margin:0;padding:26px 16px;color:var(--muted);font-size:12px;text-align:center}
+
+.exportButton{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.exportButton:disabled{opacity:.45;cursor:not-allowed}
+.exportCount{padding:1px 7px;border-radius:999px;background:var(--teal);color:#fff;font-size:10px;font-weight:800}
+.exportButton.secondary .exportCount{background:var(--teal)}
+
+/* The PRF number is the reference Finance reconciles Divvy card statements against, so it is set apart
+   rather than being one more line of grey metadata. */
+.prfNumber{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:7px;border:1px dashed var(--teal);background:#eef5f6;color:var(--teal-dark);font-size:11px;font-weight:800;letter-spacing:.03em;font-variant-numeric:tabular-nums}
+.prfNumber.divvy{border-style:solid;border-color:var(--coral);background:#fdefe9;color:#8c3c22}
+.prfNumber small{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.85}
+.detailSummary .prfNumber{margin-top:2px}
