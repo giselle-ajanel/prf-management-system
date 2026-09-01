@@ -58,6 +58,24 @@ export {
   type PrfRuleContext,
 } from "./components/RequestForm";
 
+// Components assembled from markup that was written inline in the original page rather than extracted
+// from an existing function. Each is verified against the exact slice of the app's own rendered output.
+export { AppHeader, type AppHeaderProps, type NavItem } from "./components/AppHeader";
+export { Hero, type HeroProps, type HeroTrailCard } from "./components/Hero";
+export {
+  ActionRow,
+  ReviewPanel,
+  TipPanel,
+  type ActionRowProps,
+  type ReviewPanelProps,
+  type TipPanelProps,
+} from "./components/ActionRow";
+export { AppFooter, type AppFooterProps } from "./components/AppFooter";
+export { SessionDialog, type SessionDialogProps } from "./components/SessionDialog";
+export { QueueItem, type QueueItemProps } from "./components/QueueItem";
+export { StatCard, type StatCardProps, type StatTone } from "./components/StatCard";
+export { RuleBanner, type RuleBannerProps, type RuleTone } from "./components/RuleBanner";
+
 export {
   sampleRequests,
   sampleDistricts,

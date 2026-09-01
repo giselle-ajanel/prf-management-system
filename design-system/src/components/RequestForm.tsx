@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import type { FormEvent } from "react";
 import type { AccountingCode, ComboOption } from "../types";
 import { amountOf, isNegative, money, siteKeyOf, vague } from "../utils";
+import { RuleBanner } from "./RuleBanner";
 import { SearchableCombobox } from "./SearchableCombobox";
 import { SignatureField, type SignatureMode } from "./SignatureField";
 
@@ -457,19 +458,14 @@ export function RequestForm({
             </table>
           </div>
           {active.map(rule => (
-            <div className={`ruleBanner ${rule.tone}`} key={rule.id}>
-              <strong>{rule.title}</strong>
-              <span>{rule.message}</span>
-            </div>
+            <RuleBanner key={rule.id} tone={rule.tone} title={rule.title} message={rule.message} />
           ))}
           {negativeLines && (
-            <div className="ruleBanner blocked">
-              <strong>Invalid amount</strong>
-              <span>
-                Line item amounts and quantities must be zero or greater. Negative values are not accepted on a
-                purchase request.
-              </span>
-            </div>
+            <RuleBanner
+              tone="blocked"
+              title="Invalid amount"
+              message="Line item amounts and quantities must be zero or greater. Negative values are not accepted on a purchase request."
+            />
           )}
           <section className="signatureGrid">
             <div>

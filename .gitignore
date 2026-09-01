@@ -14,3 +14,8 @@ npm-debug.log*
 /ds-bundle/
 /.ds-sync/
 /.standalone-tmp/
+
+# test scratch dirs
+design-system/test/.*-tmp/
+design-system/test/.dump/
+design-system/test/.page-render.html

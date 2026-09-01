@@ -1,5 +1,6 @@
 import type { Request } from "../types";
 import { currentMonth, money } from "../utils";
+import { StatCard } from "./StatCard";
 
 export type SummaryProps = {
   /** Requests to summarise — normally the signed-in user's own. */
@@ -27,40 +28,26 @@ export function Summary({ requests, month = currentMonth() }: SummaryProps) {
     thisMonth = approved.filter(r => r.approvedAt?.startsWith(month));
   return (
     <section className="summary">
-      <article>
-        <span className="statIcon coral">✎</span>
-        <div>
-          <strong>{drafts}</strong>
-          <p>Open drafts</p>
-          <small>Saved automatically on this device</small>
-        </div>
-      </article>
-      <article>
-        <span className="statIcon yellow">↗</span>
-        <div>
-          <strong>{pending}</strong>
-          <p>Awaiting approval</p>
-          <small>Smart routed by total</small>
-        </div>
-      </article>
-      <article>
-        <span className="statIcon mint">✓</span>
-        <div>
-          <strong>{approved.length}</strong>
-          <p>Approved requests</p>
-          <small>{money(approved.reduce((s, r) => s + r.amount, 0))} cleared</small>
-        </div>
-      </article>
-      <article>
-        <span className="statIcon blue">▣</span>
-        <div>
-          <strong>{money(thisMonth.reduce((s, r) => s + r.amount, 0))}</strong>
-          <p>Total approved this month</p>
-          <small>
+      <StatCard tone="coral" icon="✎" value={drafts} label="Open drafts" note="Saved automatically on this device" />
+      <StatCard tone="yellow" icon="↗" value={pending} label="Awaiting approval" note="Smart routed by total" />
+      <StatCard
+        tone="mint"
+        icon="✓"
+        value={approved.length}
+        label="Approved requests"
+        note={`${money(approved.reduce((s, r) => s + r.amount, 0))} cleared`}
+      />
+      <StatCard
+        tone="blue"
+        icon="▣"
+        value={money(thisMonth.reduce((s, r) => s + r.amount, 0))}
+        label="Total approved this month"
+        note={
+          <>
             {thisMonth.length} approved PRF{thisMonth.length === 1 ? "" : "s"}
-          </small>
-        </div>
-      </article>
+          </>
+        }
+      />
     </section>
   );
 }

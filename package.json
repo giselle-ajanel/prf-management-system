@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "build:share": "node scripts/build-standalone.mjs"
+    "build:share": "node scripts/build-standalone.mjs",
+    "build:ds": "node design-system/build.mjs",
+    "test:ds": "node design-system/test/utils-parity.mjs && node design-system/test/css-parity.mjs && node design-system/test/render-parity.mjs && node design-system/test/slice-parity.mjs"
   },
   "dependencies": {
     "next": "^15.4.5",
