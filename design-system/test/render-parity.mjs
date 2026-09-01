@@ -61,6 +61,13 @@ const comboOptions = [
   { value: "FIN|Finance", label: "Finance (FIN)", group: "--- DEPARTMENTS / OVERHEAD ---", search: "Finance FIN WRSHARED" },
 ];
 
+// Fixtures come from the extracted package and are handed to BOTH implementations, so the comparison is
+// over behaviour rather than over each side's own sample data.
+const { sampleRequests, sampleDistricts, emptyFinanceFilters } = extracted;
+const drafts = sampleRequests.filter(r => r.status === "Draft");
+const approved = sampleRequests.find(r => r.status === "Approved");
+const awaiting = sampleRequests.find(r => r.status === "Awaiting Approval");
+
 const cases = [
   ["StatusPill/draft", "StatusPill", { status: "Draft" }],
   ["StatusPill/awaiting", "StatusPill", { status: "Awaiting Approval" }],
@@ -77,6 +84,22 @@ const cases = [
   ["SearchableCombobox/selected", "SearchableCombobox", { label: "SITE", value: "7704|Central High School", options: comboOptions, onChange: noop }],
   ["SearchableCombobox/disabled", "SearchableCombobox", { label: "FUNDING SOURCE", value: "", options: comboOptions, onChange: noop, disabled: true, placeholder: "Select a site first" }],
   ["SearchableCombobox/bare-label", "SearchableCombobox", { label: "", value: "", options: comboOptions, onChange: noop }],
+
+  // ---- tier 2 ------------------------------------------------------------------------------------
+  ["Summary/populated", "Summary", { requests: sampleRequests }],
+  ["Summary/empty", "Summary", { requests: [] }],
+  ["Summary/drafts-only", "Summary", { requests: drafts }],
+  ["RequestTrail/mixed", "RequestTrail", { requests: sampleRequests, onOpen: noop, onResume: noop, title: "Your request trail" }],
+  ["RequestTrail/empty", "RequestTrail", { requests: [], onOpen: noop, onResume: noop, title: "All requests" }],
+  ["RequestTrail/drafts-only", "RequestTrail", { requests: drafts, onOpen: noop, onResume: noop, title: "Open drafts" }],
+  ["RequestModal/audit-closed", "RequestModal", { request: awaiting, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: false, onAction: noop }],
+  ["RequestModal/audit-open", "RequestModal", { request: awaiting, onClose: noop, auditOpen: true, setAuditOpen: noop, canApprove: false, onAction: noop }],
+  ["RequestModal/approvable", "RequestModal", { request: awaiting, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: true, onAction: noop }],
+  ["RequestModal/approved", "RequestModal", { request: approved, onClose: noop, auditOpen: true, setAuditOpen: noop, canApprove: false, onAction: noop }],
+  ["RequestModal/no-documents", "RequestModal", { request: drafts[0], onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: false, onAction: noop }],
+  ["Finance/unfiltered", "Finance", { requests: sampleRequests, all: sampleRequests, filters: emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
+  ["Finance/district-selected", "Finance", { requests: sampleRequests.filter(r => r.district === "District 4"), all: sampleRequests, filters: { ...emptyFinanceFilters, district: "District 4" }, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
+  ["Finance/no-matches", "Finance", { requests: [], all: sampleRequests, filters: { ...emptyFinanceFilters, query: "nothing matches this" }, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
 ];
 
 // ---- compare -------------------------------------------------------------------------------------
