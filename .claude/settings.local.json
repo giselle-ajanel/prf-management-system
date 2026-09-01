@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/owner/Downloads -maxdepth 3 -iname \"*Accounting*Codes*\" 2>/dev/null)",
+      "Read(//Users/owner/Downloads/**)",
+      "Bash(cp \"/private/tmp/claude-501/-Users-owner-Downloads-prf-management-system/d8c2d0e2-8e8d-4d59-90a9-0b29fda1fac0/scratchpad/inspect.mjs\" /Users/owner/Downloads/prf-management-system/scripts/_inspect.mjs)",
+      "Bash(node /Users/owner/Downloads/prf-management-system/scripts/_inspect.mjs \"/Users/owner/Downloads/prf-management-system/Accounting Codes FY27.xlsx\")"
+    ]
+  }
+}

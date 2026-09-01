@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.env
+.env.local
+npm-debug.log*
+.DS_Store
+.secure-data/
+
+# The protected FY27 workbook also exists as a root-level copy; keep both out of Git.
+*.xlsx
+
+# design-sync build output
+/design-system/dist/
+/ds-bundle/
+/.ds-sync/
+/.standalone-tmp/

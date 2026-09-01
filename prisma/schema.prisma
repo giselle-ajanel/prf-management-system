@@ -1,0 +1,122 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+
+enum Role { REQUESTER MANAGER DIRECTOR SENIOR_DIRECTOR CHIEF CFO CEO FINANCE ADMIN }
+enum RequestStatus { DRAFT AWAITING_APPROVAL RETURNED REJECTED APPROVED CANCELLED }
+enum ApprovalStatus { PENDING APPROVED RETURNED REJECTED }
+
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  role Role
+  requests PurchaseRequest[]
+  approvals Approval[]
+}
+
+model PurchaseRequest {
+  id String @id @default(cuid())
+  prfNumber String @unique
+  fiscalYear Int
+  spendingCycle String
+  status RequestStatus @default(DRAFT)
+  vendorName String?
+  purpose String?
+  total Decimal @default(0) @db.Decimal(12,2)
+  requesterId String
+  requester User @relation(fields:[requesterId], references:[id])
+  lines LineItem[]
+  coding CodingAllocation[]
+  approvals Approval[]
+  events AuditEvent[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  requesterSignedAt DateTime?
+  approverSignedAt DateTime?
+}
+
+model LineItem {
+  id String @id @default(cuid())
+  description String
+  quantity Int
+  unitPrice Decimal @db.Decimal(12,2)
+  requestId String
+  request PurchaseRequest @relation(fields:[requestId], references:[id], onDelete:Cascade)
+}
+
+model CodingMaster {
+  id String @id @default(cuid())
+  fundingGroup String
+  siteCode String
+  siteName String
+  type String
+  fiscalYear Int
+  active Boolean @default(true)
+  allocations CodingAllocation[]
+  @@unique([fundingGroup, siteCode, fiscalYear])
+}
+
+model CodingAllocation {
+  id String @id @default(cuid())
+  amount Decimal @db.Decimal(12,2)
+  manualEntry Boolean @default(false)
+  requestId String
+  codingId String?
+  request PurchaseRequest @relation(fields:[requestId], references:[id], onDelete:Cascade)
+  coding CodingMaster? @relation(fields:[codingId], references:[id])
+}
+
+model Approval {
+  id String @id @default(cuid())
+  level Role
+  status ApprovalStatus @default(PENDING)
+  signedAt DateTime?
+  requestId String
+  approverId String?
+  request PurchaseRequest @relation(fields:[requestId], references:[id], onDelete:Cascade)
+  approver User? @relation(fields:[approverId], references:[id])
+}
+
+model AuditEvent {
+  id String @id @default(cuid())
+  action String
+  actorId String
+  details Json?
+  createdAt DateTime @default(now())
+  requestId String
+  request PurchaseRequest @relation(fields:[requestId], references:[id], onDelete:Cascade)
+}
+
+// Normalized, access-controlled import target for Accounting Codes FY27.xlsx.
+// The original workbook remains server-only and is never served as a static asset.
+model AccountingCode {
+  id              String   @id @default(cuid())
+  sourceSheet     String
+  fundingSourceId String?
+  fundingSource   String?
+  siteCode        String?
+  siteName        String?
+  region          String?
+  expenseType     String?
+  status          String?
+  notes           String?
+  availability    String   @default("active")
+  deactivatesAt   DateTime?
+  fiscalYear      Int      @default(2027)
+  importedAt      DateTime @default(now())
+  @@index([siteName, siteCode])
+  @@index([fundingSource, fiscalYear])
+  @@index([status, availability])
+}
+
+model PrfDraft {
+  id          String   @id @default(cuid())
+  ownerId     String
+  district    String
+  school      String
+  payload     Json
+  lastActive  DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime?
+  @@index([ownerId, lastActive])
+}

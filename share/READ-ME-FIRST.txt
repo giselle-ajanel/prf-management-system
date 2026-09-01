@@ -1,0 +1,38 @@
+PURCHASE REQUEST HUB — PROTOTYPE
+Woodcraft Rangers · FY2027
+
+HOW TO OPEN IT
+--------------
+1. Click "PRF-Hub.html" in this folder, then click the Download button
+   (top right). Google Drive cannot display the page itself, so it has
+   to be downloaded first.
+2. Open your Downloads folder and double-click PRF-Hub.html.
+3. It opens in Edge or Chrome and is ready to use.
+
+Nothing to install. No account, no internet connection needed after
+the download. It is a single file that runs entirely in your browser.
+
+
+WHAT TO TRY
+-----------
+- Click "Start a new request" on the home page.
+- In the SITE box, start typing a school or department name, or a site
+  code. All 204 active FY27 sites are there, grouped into
+  DEPARTMENTS / OVERHEAD and SCHOOL SITES.
+- Pick a site and watch FUNDING SOURCE fill in by itself.
+- Add a line item or two; the grand total adds itself up.
+- Sign at the bottom and submit, then switch the role dropdown in the
+  top-right corner to "Finance" to review and approve it.
+- With a request open as Finance, use "Download PRF PDF" to get the
+  filled-in form as a PDF.
+
+
+GOOD TO KNOW
+------------
+- Sample requests 
+are built in so there is something to look at. Any
+  drafts you create are stored only in your own browser on your own
+  computer, and are not sent anywhere.
+- The site and funding lists are real FY27 accounting data. Everything
+  else (vendors, amounts, approvals) is made-up sample content.
+- This is a working prototype for feedback, not the live system.
