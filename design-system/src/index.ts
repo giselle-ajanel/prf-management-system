@@ -46,10 +46,24 @@ export { Summary, type SummaryProps } from "./components/Summary";
 export { RequestTrail, type RequestTrailProps } from "./components/RequestTrail";
 export { RequestModal, type RequestModalProps } from "./components/RequestModal";
 export { Finance, type FinanceProps, type FinanceFilters } from "./components/Finance";
+export {
+  RequestForm,
+  DEFAULT_PRF_RULES,
+  DEFAULT_PAYMENT_TYPES,
+  DEFAULT_EXPENSE_TYPES,
+  type RequestFormProps,
+  type PrfFormState,
+  type PrfLineDraft,
+  type PrfRule,
+  type PrfRuleContext,
+} from "./components/RequestForm";
 
 export {
   sampleRequests,
   sampleDistricts,
   sampleAccounting,
   emptyFinanceFilters,
+  blankPrfLine,
+  emptyPrfForm,
+  filledPrfForm,
 } from "./fixtures";

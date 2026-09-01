@@ -8,6 +8,7 @@
 // This is sample data, not real purchasing records.
 
 import type { AccountingCode, Request } from "./types";
+import type { PrfFormState, PrfLineDraft } from "./components/RequestForm";
 
 export const sampleRequests: Request[] = [
   {
@@ -128,3 +129,74 @@ export const sampleAccounting: AccountingCode[] = [
 
 /** Empty filter state for the Finance register. */
 export const emptyFinanceFilters = { query: "", month: "", district: "", school: "", status: "", funding: "" };
+
+/** A blank editor line. */
+export const blankPrfLine = (): PrfLineDraft => ({
+  description: "",
+  quantity: "",
+  expenseType: "Program Supplies",
+  club: "",
+  splitSite: "",
+  amount: "",
+});
+
+/**
+ * A fresh PRF editor state.
+ *
+ * `requestorDate` is fixed rather than set to today so anything rendered from this fixture — preview cards
+ * especially — produces the same markup on every run.
+ */
+export const emptyPrfForm = (): PrfFormState => ({
+  vendor: "",
+  vendorAddress: "",
+  vendorCity: "",
+  vendorEmail: "",
+  description: "",
+  amount: "",
+  district: "Woodcraft",
+  school: "",
+  siteKey: "",
+  siteName: "",
+  siteCode: "",
+  fundingCode: "",
+  region: "",
+  expenseType: "Program Supplies",
+  paymentType: "",
+  lineItems: Array.from({ length: 10 }, blankPrfLine),
+  requestorName: "Giselle Ajanel",
+  requestorSignature: "",
+  signatureMode: "type",
+  requestorDate: "2026-08-31",
+  supervisorName: "",
+  supervisorSignature: "",
+  supervisorDate: "",
+  manualSite: "",
+  manualFunding: "",
+  justification: "",
+});
+
+/** A part-filled editor state: site and funding chosen, two lines entered, ready to sign. */
+export const filledPrfForm = (): PrfFormState => {
+  const form = emptyPrfForm();
+  const lineItems = Array.from({ length: 10 }, blankPrfLine);
+  lineItems[0] = { description: "Classroom robotics kit", quantity: "24", expenseType: "Program Supplies", club: "STEM Club", splitSite: "", amount: "7800" };
+  lineItems[1] = { description: "Shipping and handling", quantity: "1", expenseType: "Program Supplies", club: "", splitSite: "", amount: "625" };
+  return {
+    ...form,
+    vendor: "Northstar Learning",
+    vendorAddress: "1200 Innovation Way",
+    vendorCity: "Los Angeles, CA 90015",
+    vendorEmail: "orders@northstarlearning.example",
+    description: "Classroom robotics kit; Shipping and handling",
+    amount: "8425",
+    school: "Central High School",
+    siteKey: "7704|Central High School",
+    siteName: "Central High School",
+    siteCode: "7704",
+    fundingCode: "88STEM — STEM Enrichment",
+    region: "South",
+    paymentType: "direct",
+    lineItems,
+    requestorSignature: "Giselle Ajanel",
+  };
+};
