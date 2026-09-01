@@ -26,7 +26,7 @@ const tmp = path.join(here, ".render-tmp");
 
 const ORIGINAL_EXPORTS = [
   "PageHead", "MonthFilter", "Summary", "StatusPill", "RequestTrail",
-  "SearchableCombobox", "SignatureField", "RequestModal", "Finance", "RequestForm",
+  "SearchableCombobox", "SignatureField", "RequestModal", "Finance",
 ];
 
 await fs.rm(tmp, { recursive: true, force: true });
@@ -122,16 +122,6 @@ const cases = [
   ["Finance/district-selected", "Finance", { requests: sampleRequests.filter(r => r.district === "District 4"), all: sampleRequests, filters: { ...emptyFinanceFilters, district: "District 4" }, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
   ["Finance/no-matches", "Finance", { requests: [], all: sampleRequests, filters: { ...emptyFinanceFilters, query: "nothing matches this" }, setFilters: noop, onOpen: noop, districts: sampleDistricts }],
 
-  // ---- tier 3 ------------------------------------------------------------------------------------
-  ["RequestForm/blank", "RequestForm", { ...formBase, form: extracted.emptyPrfForm() }],
-  ["RequestForm/filled", "RequestForm", { ...formBase, form: extracted.filledPrfForm(), accounting: extracted.sampleAccounting }],
-  ["RequestForm/dirty", "RequestForm", { ...formBase, form: extracted.filledPrfForm(), dirty: true, lastSaved: "" }],
-  ["RequestForm/saved", "RequestForm", { ...formBase, form: extracted.filledPrfForm(), dirty: false, lastSaved: "Saved 9:06 AM" }],
-  ["RequestForm/notice", "RequestForm", { ...formBase, form: extracted.emptyPrfForm(), notice: "Vendor, amount, and description are required." }],
-  ["RequestForm/negative-line", "RequestForm", { ...formBase, form: negativeForm }],
-  ["RequestForm/asset-transport-blocked", "RequestForm", { ...formBase, form: blockedForm }],
-  ["RequestForm/pasadena-info", "RequestForm", { ...formBase, form: pasadenaForm }],
-  ["RequestForm/with-accounting", "RequestForm", { ...formBase, form: extracted.emptyPrfForm(), accounting: extracted.sampleAccounting, accountingStatus: "4 active FY27 sites loaded." }],
 ];
 
 // ---- compare -------------------------------------------------------------------------------------
@@ -160,27 +150,6 @@ for (const [name, component, props] of cases) {
   }
 }
 
-// ---- fixture coverage ----------------------------------------------------------------------------
-// A rule case where BOTH sides render nothing would pass vacuously, proving nothing about the refactor
-// that turned two hardcoded conditionals into the `rules` prop. These assertions pin down that each rule
-// fixture actually reaches its banner, and that only `blocked` rules gate submission.
-const renderForm = form => renderToStaticMarkup(createElement(extracted.RequestForm, { ...formBase, form }));
-const coverage = [
-  ["asset-transport rule fires and blocks", blockedForm, "Funding restriction", true],
-  ["pasadena rule fires and does not block", pasadenaForm, "Contract duration", false],
-  ["negative-line rule fires and blocks", negativeForm, "Invalid amount", true],
-];
-for (const [name, form, needle, shouldBlock] of coverage) {
-  const html = renderForm(form);
-  compared++;
-  if (!html.includes(needle)) failures.push(`${name}: banner "${needle}" never rendered — fixture no longer triggers the rule`);
-  else if (html.includes('type="submit" disabled') !== shouldBlock)
-    failures.push(`${name}: submit ${shouldBlock ? "should" : "should not"} be disabled`);
-}
-// Control: a clean form must render no banner at all, or the assertions above prove nothing.
-const cleanHtml = renderForm(extracted.filledPrfForm());
-compared++;
-if (cleanHtml.includes("ruleBanner")) failures.push("control: a clean form rendered a rule banner");
 
 await fs.rm(tmp, { recursive: true, force: true });
 

@@ -8,10 +8,15 @@ import { RuleBanner } from "./RuleBanner";
 import { SearchableCombobox } from "./SearchableCombobox";
 import { SignatureField, type SignatureMode } from "./SignatureField";
 
-/** One editable line in the PRF table. Every field is a string — this is raw form state, not parsed data. */
+/**
+ * One editable line in the PRF table. Every field is a string — this is raw form state, not parsed data.
+ *
+ * There is deliberately no `quantity` field. The paper form has a single "Item Description and Quantity"
+ * cell, and the digital form now matches it: requesters write what, how many, and why in one block. Records
+ * saved before this change may still carry a `quantity` string; it is ignored on read.
+ */
 export type PrfLineDraft = {
   description: string;
-  quantity: string;
   expenseType: string;
   club: string;
   splitSite: string;
@@ -275,7 +280,8 @@ export function RequestForm({
       expenseType: lineItems.find(line => line.description)?.expenseType || "Program Supplies",
     });
   };
-  const negativeLines = form.lineItems.some(line => isNegative(line.amount) || isNegative(line.quantity));
+  // Only amounts can be negative now that quantity has moved into the description block.
+  const negativeLines = form.lineItems.some(line => isNegative(line.amount));
   const selected = siteRows.find(option => option.fundingSource === form.fundingCode) || siteRows[0],
     siteName = selected?.siteName || form.school || "";
   const active = rules.filter(rule => rule.applies({ form, siteName, lineItems: form.lineItems }));
@@ -402,7 +408,8 @@ export function RequestForm({
               <thead>
                 <tr>
                   <th>
-                    Item Description and Quantity<small>Be specific: what, how many, and for what purpose</small>
+                    Item Description and Quantity
+                    <small>Be specific: what, how many, and for what purpose</small>
                   </th>
                   <th>Expense Type</th>
                   <th>Club</th>
@@ -418,17 +425,10 @@ export function RequestForm({
                     <td>
                       <div className="descriptionQty">
                         <textarea
-                          aria-label={`Item ${index + 1} description`}
+                          aria-label={`Item ${index + 1} description and quantity`}
+                          placeholder={index === 0 ? "e.g. 24 classroom robotics kits for the Grade 9 STEM lab" : ""}
                           value={line.description}
                           onChange={event => updateLine(index, "description", event.target.value)}
-                        />
-                        <input
-                          aria-label={`Item ${index + 1} quantity`}
-                          type="number"
-                          min="0"
-                          placeholder="Qty"
-                          value={line.quantity}
-                          onChange={event => updateLine(index, "quantity", event.target.value)}
                         />
                       </div>
                     </td>
@@ -473,7 +473,7 @@ export function RequestForm({
             <RuleBanner
               tone="blocked"
               title="Invalid amount"
-              message="Line item amounts and quantities must be zero or greater. Negative values are not accepted on a purchase request."
+              message="Line item amounts must be zero or greater. Negative values are not accepted on a purchase request."
             />
           )}
           <section className="signatureGrid">

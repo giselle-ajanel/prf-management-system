@@ -133,7 +133,6 @@ export const emptyFinanceFilters = { query: "", month: "", district: "", school:
 /** A blank editor line. */
 export const blankPrfLine = (): PrfLineDraft => ({
   description: "",
-  quantity: "",
   expenseType: "Program Supplies",
   club: "",
   splitSite: "",
@@ -179,15 +178,15 @@ export const emptyPrfForm = (): PrfFormState => ({
 export const filledPrfForm = (): PrfFormState => {
   const form = emptyPrfForm();
   const lineItems = Array.from({ length: 10 }, blankPrfLine);
-  lineItems[0] = { description: "Classroom robotics kit", quantity: "24", expenseType: "Program Supplies", club: "STEM Club", splitSite: "", amount: "7800" };
-  lineItems[1] = { description: "Shipping and handling", quantity: "1", expenseType: "Program Supplies", club: "", splitSite: "", amount: "625" };
+  lineItems[0] = { description: "24 classroom robotics kits for the Grade 9 after-school STEM lab", expenseType: "Program Supplies", club: "STEM Club", splitSite: "", amount: "7800" };
+  lineItems[1] = { description: "Shipping and handling (1 delivery)", expenseType: "Program Supplies", club: "", splitSite: "", amount: "625" };
   return {
     ...form,
     vendor: "Northstar Learning",
     vendorAddress: "1200 Innovation Way",
     vendorCity: "Los Angeles, CA 90015",
     vendorEmail: "orders@northstarlearning.example",
-    description: "Classroom robotics kit; Shipping and handling",
+    description: "24 classroom robotics kits for the Grade 9 after-school STEM lab; Shipping and handling (1 delivery)",
     amount: "8425",
     school: "Central High School",
     siteKey: "7704|Central High School",
