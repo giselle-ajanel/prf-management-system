@@ -25,10 +25,13 @@ export {
   countOf,
   money,
   vague,
+  APPROVAL_TIERS,
+  tierFor,
   routeFor,
   siteKeyOf,
   currentMonth,
   monthLabel,
+  type ApprovalTier,
 } from "./utils";
 
 export {
@@ -126,6 +129,11 @@ export { SessionDialog, type SessionDialogProps } from "./components/SessionDial
 export { QueueItem, type QueueItemProps } from "./components/QueueItem";
 export { StatCard, type StatCardProps, type StatTone } from "./components/StatCard";
 export { RuleBanner, type RuleBannerProps, type RuleTone } from "./components/RuleBanner";
+export {
+  SupervisorReview,
+  DEFAULT_REVIEW_CHECKLIST,
+  type SupervisorReviewProps,
+} from "./components/SupervisorReview";
 
 // Fixtures are deliberately NOT re-exported here — import them from "@ds/fixtures".
 //

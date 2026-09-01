@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionRow, AppFooter, AppHeader, ExportButton, Finance, Hero, MonthFilter, NotificationBell, PageHead,
-  QueueItem, RequestForm, RequestModal, RequestTrail, ReviewPanel, SessionDialog, Summary, TipPanel,
-  SCHOOL_TAB,
+  QueueItem, RequestForm, RequestModal, RequestTrail, ReviewPanel, SessionDialog, Summary, SupervisorReview,
+  TipPanel, SCHOOL_TAB,
   amountOf, countOf, markAllRead, money, monthLabel, notify, routeFor, siteKeyOf, vague,
   type AccountingCode, type PrfFormState, type PrfLineDraft, type PrfNotification, type Request,
   type Status, type View,
@@ -99,6 +99,10 @@ export default function PurchaseRequestHub() {
   const closeEditor=()=>{if(dirtyRef.current&&!window.confirm("This PRF has unsaved changes.\n\nOK — save it as an Open Draft and close.\nCancel — keep editing."))return;if(dirtyRef.current)saveNativeDraft();setCreating(false);setNotice("")};
   const approve=(request:Request,action:"Approved"|"Returned",note="")=>{if(action==="Approved"&&!request.requesterSigned)return;const now=new Date().toLocaleString();const updated={...request,status:action as Status,approverSigned:action==="Approved"?true:request.approverSigned,approvedAt:action==="Approved"?new Date().toISOString():request.approvedAt,reviewNote:action==="Returned"?note||request.reviewNote:request.reviewNote,updated:"Just now",approvals:request.approvals.map((a,i)=>i===request.approvals.length-1?{...a,status:action==="Approved"?"Signed":"Returned",name:"Giselle Ajanel",time:now}:a),audit:[{time:now,event:action==="Approved"?"Native PRF approved and electronically signed":"Returned for changes",actor:"Giselle Ajanel"},...request.audit]};setRequests(p=>p.map(r=>r.id===request.id?updated:r));setSelected(updated);announce(action==="Approved"?"approved":"returned",updated,note);};
   const navigate=(next:View)=>{setView(next);window.scrollTo({top:0,behavior:"smooth"})};
+  // "Review request" in the approval queue opens the reviewer's decision screen. "View approval" and every
+  // other entry point — Finance, My Requests, the notification bell — open the read-only record instead.
+  // RequestModal keeps its own approve path for other callers; this page no longer routes through it.
+  const reviewing=Boolean(selected&&view==="approvals"&&selected.status==="Awaiting Approval");
 
   return <main>
     <AppHeader
@@ -146,7 +150,9 @@ export default function PurchaseRequestHub() {
     <AppFooter/>
     {creating&&<RequestForm form={form} setForm={setForm} notice={notice} accounting={accounting} accountingStatus={accountingStatus} lastSaved={lastSaved} dirty={dirty} onClose={closeEditor} onSave={()=>saveNativeDraft()} onProceed={submitNative}/>}
     {creating&&editingId&&<button className="modalDeleteDraft" onClick={()=>{const draft=requests.find(request=>request.id===editingId);if(draft)deleteDraft(draft)}}>Delete Draft</button>}
-    {selected&&<RequestModal request={selected} onClose={()=>{setSelected(null);setAuditOpen(false)}} auditOpen={auditOpen} setAuditOpen={setAuditOpen} canApprove={view==="approvals"&&["Awaiting Approval"].includes(selected.status)} onAction={approve}/>} 
+    {selected&&(reviewing
+      ? <SupervisorReview request={selected} onClose={()=>setSelected(null)} onApprove={request=>{approve(request,"Approved");setSelected(null)}} onReject={(request,note)=>{approve(request,"Returned",note);setSelected(null)}}/>
+      : <RequestModal request={selected} onClose={()=>{setSelected(null);setAuditOpen(false)}} auditOpen={auditOpen} setAuditOpen={setAuditOpen} canApprove={false} onAction={approve}/>)}
     {selected&&role==="Finance"&&<button className="financeDownload" onClick={()=>downloadFormattedPrfPdf(selected)}>Download PRF PDF ↓</button>}
     {sessionExpired&&<SessionDialog onRefresh={()=>{lastActivity.current=Date.now();setSessionExpired(false)}}/>}
   </main>;

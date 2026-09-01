@@ -1,0 +1,64 @@
+/* The approver's review screen. */
+
+.reviewModal{width:min(940px,100%);max-height:92vh;overflow:auto;padding-bottom:26px}
+.reviewModal .modalHead>div{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.reviewModal .modalHead h2{margin:0;font-size:23px;letter-spacing:-.02em}
+
+.reviewFacts{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin:0 26px;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--line)}
+.reviewFacts>div{display:grid;gap:3px;padding:14px 16px;background:var(--paper)}
+.reviewFacts small{color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.12em}
+.reviewFacts strong{font-size:14px;line-height:1.3;overflow-wrap:anywhere}
+.reviewFacts span{color:var(--muted);font-size:11px}
+
+.reviewModal .ruleBanner{margin:15px 26px 0}
+
+.reviewAuthority{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:22px;margin:18px 26px 0;padding:18px 22px;border-radius:14px;background:var(--teal);color:#fff}
+.reviewTotal small,.reviewTier small{display:block;font-size:9px;font-weight:800;letter-spacing:.12em;opacity:.8}
+.reviewTotal strong{display:block;margin-top:3px;font-size:32px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.reviewTier{padding-left:22px;border-left:1px solid rgba(255,255,255,.25)}
+.reviewTier strong{display:block;margin-top:3px;font-size:19px;color:var(--yellow)}
+.reviewTier span{display:block;margin-top:3px;font-size:11px;opacity:.9}
+
+.reviewColumns{display:grid;grid-template-columns:1.4fr 1fr;gap:26px;margin:22px 26px 0}
+.reviewColumns h3{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 11px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.checklistCount{font-size:11px;font-weight:800;color:var(--teal)}
+.reviewItems{width:100%;border-collapse:collapse;font-size:12px}
+.reviewItems th{padding:8px 10px;background:#eef2f1;text-align:left;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.reviewItems td{padding:9px 10px;border-top:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.reviewItems th:last-child,.reviewItems td:last-child{width:110px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.reviewItems tfoot td{border-top:2px solid var(--ink);font-weight:800}
+
+.reviewChecklist{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+.reviewChecklist label{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;cursor:pointer;font-size:12px;line-height:1.45}
+.reviewChecklist input{margin-top:2px;width:15px;height:15px;accent-color:var(--teal)}
+.reviewChecklist input:checked+span{color:var(--muted);text-decoration:line-through}
+.checklistNote{margin:12px 0 0;color:var(--muted);font-size:11px;line-height:1.5}
+
+.reviewActions{display:flex;justify-content:flex-end;gap:12px;margin:24px 26px 0}
+.approveSign{background:var(--teal)!important;color:#fff}
+.approveSign:disabled{opacity:.4;cursor:not-allowed}
+.rejectStart{color:var(--coral);border-color:var(--coral)!important}
+
+.rejectPanel{margin:24px 26px 0;padding:18px 20px;border:2px solid var(--coral);border-radius:14px;background:#fdf3ef}
+.rejectPanel label{display:grid;gap:8px}
+.rejectPanel strong{font-size:13px}
+.rejectPanel textarea{width:100%;min-height:92px;padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-size:13px;line-height:1.5;resize:vertical}
+.rejectActions{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:13px;flex-wrap:wrap}
+.rejectActions>div{display:flex;gap:10px}
+.rejectActions small{font-size:11px}
+.rejectActions small.required{color:var(--coral);font-weight:700}
+.rejectActions small.ready{color:var(--muted)}
+.rejectConfirm{background:var(--coral)!important;color:#fff}
+.rejectConfirm:disabled{opacity:.4;cursor:not-allowed}
+
+@media(max-width:820px){
+  .reviewFacts{grid-template-columns:repeat(2,1fr)}
+  .reviewColumns{grid-template-columns:1fr;gap:20px}
+  .reviewAuthority{grid-template-columns:1fr;gap:14px}
+  .reviewTier{padding-left:0;border-left:0;border-top:1px solid rgba(255,255,255,.25);padding-top:13px}
+}
+@media(max-width:560px){
+  .reviewFacts{grid-template-columns:1fr}
+  .reviewActions{flex-direction:column-reverse}
+  .reviewActions button{width:100%}
+}

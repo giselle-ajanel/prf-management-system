@@ -57,3 +57,5 @@
 @import "./25-combo-custom.css";
 /* Notification bell and centre, CSV export button, PRF number emphasis. */
 @import "./26-notifications-export.css";
+/* The approver's review screen: fact grid, authority band, item table, checklist, send-back panel. */
+@import "./27-supervisor-review.css";

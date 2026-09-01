@@ -54,6 +54,14 @@ const cases = [
   ["RequestModal.approvable", () => createElement(ds.RequestModal, { request: awaiting, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: true, onAction: noop })],
   ["RequestModal.divvy", () => createElement(ds.RequestModal, { request: { ...awaiting, paymentType: "divvy" }, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: true, onAction: noop })],
   ["RequestModal.custom-site", () => createElement(ds.RequestModal, { request: { ...awaiting, siteCode: "", customSite: true }, onClose: noop, auditOpen: false, setAuditOpen: noop, canApprove: false, onAction: noop })],
+  // The send-back panel is behind component state, so a static render can only ever see the two-button
+  // resting state. What these cases do pin is everything a decision is made from: the fact grid, the
+  // authority band the tier table feeds, the item breakdown, and each banner that can block or qualify it.
+  ["SupervisorReview.awaiting", () => createElement(ds.SupervisorReview, { request: awaiting, onClose: noop, onApprove: noop, onReject: noop })],
+  ["SupervisorReview.unsigned", () => createElement(ds.SupervisorReview, { request: { ...awaiting, requesterSigned: false }, onClose: noop, onApprove: noop, onReject: noop })],
+  ["SupervisorReview.custom-coding", () => createElement(ds.SupervisorReview, { request: { ...awaiting, siteCode: "", customSite: true, customFunding: true }, onClose: noop, onApprove: noop, onReject: noop })],
+  // $96,400 lands in the CFO + CEO band — the one tier the brief still has an open question about.
+  ["SupervisorReview.cfo-tier", () => createElement(ds.SupervisorReview, { request: { ...awaiting, amount: 96400, lineItems: [], documents: [] }, onClose: noop, onApprove: noop, onReject: noop })],
   ["Finance.unfiltered", () => createElement(ds.Finance, { requests: ds.sampleRequests, all: ds.sampleRequests, filters: ds.emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
   ["Finance.no-matches", () => createElement(ds.Finance, { requests: [], all: ds.sampleRequests, filters: { ...ds.emptyFinanceFilters, query: "zzz" }, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
   ["QueueItem.awaiting", () => createElement(ds.QueueItem, { request: awaiting, onOpen: noop })],
