@@ -1,0 +1,55 @@
+/* Purchase Request Hub — stylesheet entry point.
+ *
+ * Rendered designs receive only this file's transitive @import closure, so every layer the components
+ * need must be reachable from here. The order below replays app/globals.css line-for-line: several
+ * selectors (.modalBackdrop, .ruleBanner) are deliberately redefined by later layers, so reordering
+ * these imports would silently change the cascade.
+ */
+/* Design tokens: the 11 custom properties every other layer reads. */
+@import "./01-tokens.css";
+/* Reset, document defaults and the .eyebrow label style. */
+@import "./02-base.css";
+/* Application header: brand mark, primary nav, profile cluster. */
+@import "./03-topbar.css";
+/* Overview hero, including the decorative sun/hill/trail-card art. */
+@import "./04-hero.css";
+/* Default button treatment, with the opt-out selectors for link/icon buttons. */
+@import "./05-button.css";
+/* Summary stat cards and their coloured icon chips. */
+@import "./06-summary.css";
+/* Section intro plus the request card grid. */
+@import "./07-request-trail.css";
+/* Review panel and tip panel pairing on the overview. */
+@import "./08-action-row.css";
+/* Standard page shell, page head, queue list and month filter. */
+@import "./09-page.css";
+/* Finance metrics, filter bar, hierarchy header and register table. */
+@import "./10-finance.css";
+/* Modal shell and the request detail modal's summary/columns/audit. */
+@import "./11-modal.css";
+/* Application footer. */
+@import "./12-footer.css";
+/* Breakpoints at 1050px, 820px and 560px. */
+@import "./13-responsive.css";
+/* Editor save-state indicator and handoff note. */
+@import "./14-editor-state.css";
+/* Why-callout block and the blue tone. */
+@import "./15-callout.css";
+/* Later breakpoint patches for save state, summary and head actions. */
+@import "./16-responsive-overrides.css";
+/* Awaiting-approval pill colour, session prompt, info notice. */
+@import "./17-status-session.css";
+/* Profile context grid and its controls. */
+@import "./18-profile-context.css";
+/* Rule banner base. */
+@import "./19-rule-banner.css";
+/* SearchableCombobox field, menu, groups and empty state. */
+@import "./20-combobox.css";
+/* Later modal backdrop patch — raises z-index over the base rule. */
+@import "./21-modal-overrides.css";
+/* The native PRF editor: paper, accounting block, line table, signatures. */
+@import "./22-prf-editor.css";
+/* Long-string wrapping guards. */
+@import "./23-wrapping.css";
+/* Later rule banner patches for the blocked and info variants. */
+@import "./24-rule-banner-overrides.css";

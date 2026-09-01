@@ -1,0 +1,3 @@
+@media(max-width:560px){.saveState{display:none}}
+@media(max-width:1050px) and (min-width:821px){.summary{grid-template-columns:repeat(2,1fr)}.summary article{border-bottom:1px solid var(--line);border-radius:0!important}}
+@media(max-width:620px){.headActions{width:100%;align-items:stretch;flex-direction:column}.monthFilter select{width:100%}}

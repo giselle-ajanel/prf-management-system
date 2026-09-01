@@ -1,0 +1,3 @@
+/* Long unbroken strings (pasted part numbers, URLs) must wrap rather than widen a card, cell or modal. */
+.cardBody p,.cardBody h3,.detailColumns p,.detailColumns td,.financeTable td,.queueItem h3,.queueItem p,.comboMenu button,.audit p{overflow-wrap:anywhere;word-break:break-word}
+.nativeLineTable td,.nativeLineTable textarea{overflow-wrap:anywhere}

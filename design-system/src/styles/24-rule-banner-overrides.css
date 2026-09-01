@@ -1,0 +1,3 @@
+.ruleBanner.blocked{display:flex;flex-direction:column;gap:3px;margin:12px 0;padding:12px 15px;border-left:4px solid #c0492f;background:#fbe2dc;color:#7c3324;font-size:12px}
+.ruleBanner.blocked strong{font-size:12px}
+.ruleBanner.info{display:flex;flex-direction:column;gap:3px;margin:12px 0;padding:12px 15px;border-left:4px solid #d8a92b;background:#fbf3dc;color:#6d5514;font-size:12px}

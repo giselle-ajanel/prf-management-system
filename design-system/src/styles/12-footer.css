@@ -1,0 +1,1 @@
+footer{min-height:115px;padding:35px clamp(24px,6vw,86px);background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:25px}footer span{color:#c9cbc7;font-size:13px}footer small{color:var(--yellow)}

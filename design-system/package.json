@@ -1,0 +1,27 @@
+{
+  "name": "@prf/design-system",
+  "version": "0.1.0",
+  "description": "Purchase Request Hub design system — the components and token layer behind the Woodcraft Rangers PRF experience.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./src/*": "./src/*"
+  },
+  "files": ["dist"],
+  "sideEffects": ["*.css"],
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
