@@ -95,6 +95,15 @@ export const DEFAULT_PRF_RULES: PrfRule[] = [
   },
 ];
 
+/** Workbook tab holding department / overhead rows. */
+export const DEPARTMENT_TAB = "FY27";
+/** Workbook tab holding school-site rows. */
+export const SCHOOL_TAB = "School Site Codes FY27";
+/** Group heading for departments in the site combobox. */
+export const DEPARTMENT_GROUP = "--- DEPARTMENTS / OVERHEAD ---";
+/** Group heading for schools in the site combobox. */
+export const SCHOOL_GROUP = "--- SCHOOL SITES ---";
+
 /** Payment methods offered by the radio group. */
 export const DEFAULT_PAYMENT_TYPES: [string, string][] = [
   ["divvy", "Divvy Card"],
@@ -186,10 +195,10 @@ export function RequestForm({
   onSave,
   onProceed,
   rules = DEFAULT_PRF_RULES,
-  departmentTab = "FY27",
-  schoolTab = "School Site Codes FY27",
-  departmentGroup = "--- DEPARTMENTS / OVERHEAD ---",
-  schoolGroup = "--- SCHOOL SITES ---",
+  departmentTab = DEPARTMENT_TAB,
+  schoolTab = SCHOOL_TAB,
+  departmentGroup = DEPARTMENT_GROUP,
+  schoolGroup = SCHOOL_GROUP,
   paymentTypes = DEFAULT_PAYMENT_TYPES,
   expenseTypes = DEFAULT_EXPENSE_TYPES,
   brandLines = ["WOODCRAFT", "RANGERS"],

@@ -46,7 +46,7 @@ const original = await import(pathToFileURL(path.join(tmp, "original.mjs")).href
 
 // ---- bundle the extracted design system ----------------------------------------------------------
 await build({
-  entryPoints: [path.join(here, "..", "src", "index.ts")], outfile: path.join(tmp, "extracted.mjs"),
+  stdin: { contents: `export * from "./src/index.ts"; export * from "./src/fixtures.ts";`, resolveDir: path.join(here, ".."), loader: "ts" }, outfile: path.join(tmp, "extracted.mjs"),
   bundle: true, format: "esm", platform: "node", jsx: "automatic",
   external: ["react", "react-dom", "react/jsx-runtime", "react-dom/client"], logLevel: "silent",
 });

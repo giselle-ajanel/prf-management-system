@@ -51,7 +51,7 @@ if (variantSource === source) {
 
 const baseline = await compile("baseline", source);
 const variant = await compile("variant", variantSource);
-const ds = await compile("ds", `export * from ${JSON.stringify(path.join(here, "..", "src", "index.ts"))};`);
+const ds = await compile("ds", `export * from ${JSON.stringify(path.join(here, "..", "src", "index.ts"))}; export * from ${JSON.stringify(path.join(here, "..", "src", "fixtures.ts"))};`);
 
 const baseHtml = renderToStaticMarkup(createElement(baseline.default));
 const variantHtml = renderToStaticMarkup(createElement(variant.default));

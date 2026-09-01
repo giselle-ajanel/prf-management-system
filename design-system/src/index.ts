@@ -51,6 +51,10 @@ export {
   DEFAULT_PRF_RULES,
   DEFAULT_PAYMENT_TYPES,
   DEFAULT_EXPENSE_TYPES,
+  DEPARTMENT_TAB,
+  SCHOOL_TAB,
+  DEPARTMENT_GROUP,
+  SCHOOL_GROUP,
   type RequestFormProps,
   type PrfFormState,
   type PrfLineDraft,
@@ -76,12 +80,9 @@ export { QueueItem, type QueueItemProps } from "./components/QueueItem";
 export { StatCard, type StatCardProps, type StatTone } from "./components/StatCard";
 export { RuleBanner, type RuleBannerProps, type RuleTone } from "./components/RuleBanner";
 
-export {
-  sampleRequests,
-  sampleDistricts,
-  sampleAccounting,
-  emptyFinanceFilters,
-  blankPrfLine,
-  emptyPrfForm,
-  filledPrfForm,
-} from "./fixtures";
+// Fixtures are deliberately NOT re-exported here — import them from "@ds/fixtures".
+//
+// Next's bundler does tree-shake them out of the app today, but the app reaches this barrel through a
+// tsconfig path alias, which bypasses package.json resolution and with it the "sideEffects" hint. That
+// makes the elimination a property of the current bundler rather than something the package guarantees.
+// Keeping sample data out of the public entry point makes it structural instead.
