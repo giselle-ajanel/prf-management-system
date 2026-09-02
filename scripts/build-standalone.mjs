@@ -51,6 +51,15 @@ function demoSeed(){
   return {users,accounts};
 }
 
+async function stylesheet(){
+  const dir=at("design-system","src","styles");
+  const entry=await fs.readFile(path.join(dir,"styles.css"),"utf8");
+  const order=[...entry.matchAll(/@import "\.\/(.+?)"/g)].map(m=>m[1]);
+  if(!order.length) throw new Error("styles.css declares no @import layers");
+  const layers=await Promise.all(order.map(file=>fs.readFile(path.join(dir,file),"utf8")));
+  return layers.join("");
+}
+
 async function appBundle(options){
   const outfile=path.join(tmp,"app.js");
   const shim=name=>at("scripts","browser-shims",name);
@@ -92,7 +101,10 @@ try{
 
   step("bundling app/page.tsx with React…");
   const js=await appBundle(options);
-  const css=await fs.readFile(at("app","globals.css"),"utf8");
+  // app/globals.css is a single @import of the design system's entry point, and an @import cannot resolve
+  // inside a self-contained file. Concatenate the layers in declared order, exactly as design-system's own
+  // build does — the cascade in this system is load-bearing, so the order is the whole point.
+  const css=await stylesheet();
 
   const html=shell(css,js,sites.size);
   await fs.mkdir(at("share"),{recursive:true});
