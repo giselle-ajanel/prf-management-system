@@ -326,19 +326,23 @@ await check("a requester cannot approve, and cannot reach the export", async () 
 
 // ---- approval --------------------------------------------------------------------------------------
 
-await check("an approver sees the register but cannot create a request", async () => {
+await check("an approver cannot see the draft, and cannot create a request", async () => {
+  // Still a draft at this point in the run: private to Giselle until she submits it.
   const list = await call(approver, "GET", "/api/requests");
   assert.equal(list.status, 200);
-  assert.ok(list.body.requests.some(entry => entry.id === alicePrf));
+  assert.ok(!list.body.requests.some(entry => entry.id === alicePrf));
+  assert.equal((await call(approver, "GET", `/api/requests/${alicePrf}`)).status, 404);
   assert.equal((await call(approver, "POST", "/api/requests", { vendor: "X" })).status, 403);
 });
 
-await check("an unsubmitted PRF cannot be approved", async () => {
+await check("an unsubmitted PRF cannot be approved, and its existence is not disclosed", async () => {
   const response = await call(approver, "POST", `/api/requests/${alicePrf}/decision`, {
     action: "approve",
     signature: "Ana Rivera",
   });
-  assert.equal(response.status, 409);
+  // 404 rather than 409: a draft is invisible to an approver, so the honest answer is that there is no
+  // such request to act on — a conflict would confirm one exists.
+  assert.equal(response.status, 404);
 });
 
 await check("the requester submits and signs", async () => {
@@ -424,6 +428,25 @@ await check("an approver is notified of a submission, and the requester of the o
   assert.ok(waiting.body.notifications.some(entry => entry.kind === "submitted" && entry.requestId === alicePrf));
   const outcome = await call(alice, "GET", "/api/notifications");
   assert.ok(outcome.body.notifications.some(entry => entry.kind === "approved" && entry.requestId === alicePrf));
+});
+
+
+await check("the approver's own name reaches the approval record", async () => {
+  const record = (await call(approver, "GET", `/api/requests/${alicePrf}`)).body.request;
+  assert.equal(record.approverName, "Ana Rivera");
+  assert.ok(record.approverId, "the approver's id was not recorded");
+});
+
+await check("a rename shows up immediately, without signing in again", async () => {
+  const renamed = await call(approver, "PUT", "/api/profile", {
+    firstName: "Jane", lastName: "Doe", contactEmail: "director@woodcraftrangers.org",
+  });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.body.profile.role, "DIRECTOR", "a rename must not change the position");
+  // The session cookie carries the new name from the very next request.
+  const session = await call(approver, "GET", "/api/auth/session");
+  assert.equal(session.body.user.name, "Jane Doe");
+  assert.equal(session.body.user.role, "DIRECTOR");
 });
 
 // ---- sign-out --------------------------------------------------------------------------------------

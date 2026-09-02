@@ -22,3 +22,6 @@ design-system/test/.page-render.html
 
 # server test scratch
 /test/.tmp/
+
+# verification builds (kept out of the dev server's .next)
+/.next-build/

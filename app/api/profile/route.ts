@@ -30,5 +30,8 @@ export const PUT = authenticated({ name: "profile.update", mutation: true }, asy
     lastName: line(payload.lastName, "Last name", 60),
     contactEmail: payload.contactEmail ? parseEmail(payload.contactEmail, "Contact email") : session.email,
   });
+  // Carry the new name onto the session cookie, so the header, the approval signature and the audit trail
+  // all show it from the very next request rather than after the next sign-in.
+  session.name = user.name;
   return json({ profile: { firstName: user.firstName, lastName: user.lastName, email: user.email, contactEmail: user.contactEmail, role: user.role } });
 });

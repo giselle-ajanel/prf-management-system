@@ -91,6 +91,12 @@ performing it. Hiding a button changes nothing about what the API will do:
 
 - A requester sees only their own PRFs. Asking for someone else's by id returns **404, not 403** — the
   existence of the record is itself not theirs to learn.
+- **A draft is private to the person writing it.** No position sees another requester's unsubmitted draft —
+  not an approver, not Finance, not an administrator. An approver's queue begins when a request is
+  submitted. Approvers see everything awaiting review and everything approved, plus the requests they
+  personally sent back so a return can be followed to resolution; a return by a different approver belongs
+  to that approver. Finance and administrators see every submitted request, because the register and grant
+  reporting have to be complete — drafts stay out of that too.
 - Drafts are editable by their owner while `Draft` or `Returned`; a submitted or approved PRF is not.
 - Only an unsubmitted `Draft` can be deleted. A returned PRF has been submitted once and its history has to
   survive, so it can be fixed and resubmitted but never removed.
@@ -133,7 +139,15 @@ Site codes beginning `99` are retired and filtered out at the point every dropdo
 ## Audit trail
 
 Every PRF carries an append-only history: creation, each save, submission with the signature that
-accompanied it, routing, and every approval or return with its comment, actor and timestamp. The store
+accompanied it, routing, and every approval or return with its comment, actor and timestamp. Each entry
+records both the actor's display name and their immutable user id, so a later rename cannot make an old
+approval ambiguous. Account changes — a rename, a contact address, a position reassignment — go to a
+separate append-only log readable by Finance and administrators, keyed to the account they were made to and
+the person who made them.
+
+Changing your name takes effect immediately: the session cookie is re-issued with it, so the header, the
+next approval signature and the Supervisor Approval line on the printed form all show the new name from the
+very next request rather than after the next sign-in. A rename never touches the position. The store
 verifies before each commit that existing entries are still present and unchanged, so a code path that
 rewrites history fails instead of succeeding quietly.
 

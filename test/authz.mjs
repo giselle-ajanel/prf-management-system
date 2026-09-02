@@ -325,9 +325,10 @@ await check("another requester gets Not Found rather than Forbidden for someone 
   await rejects(() => S.getRequest(bob, alicePrf.id), "NotFoundError");
 });
 
-await check("an approver sees the whole register", async () => {
-  const all = await S.listRequests(approver);
-  assert.equal(all.length, 1);
+await check("an approver does not see a draft, even as the only request in the system", async () => {
+  // Drafts are the requester's private working copy; the queue starts when they submit.
+  assert.equal((await S.listRequests(approver)).length, 0);
+  assert.equal((await S.listRequests(finance)).length, 0);
 });
 
 await check("another requester cannot edit or delete a PRF that is not theirs", async () => {
@@ -418,8 +419,13 @@ await check("a second requester's PRF stays invisible to the first", async () =>
   const bobPrf = await S.createDraft(bob, S.input.parseDraft(draft({ vendor: "City Office Supply" })));
   const aliceSees = await S.listRequests(alice);
   assert.ok(!aliceSees.some(entry => entry.id === bobPrf.id));
-  assert.ok((await S.listRequests(approver)).some(entry => entry.id === bobPrf.id));
   await rejects(() => S.getRequest(alice, bobPrf.id), "NotFoundError");
+  // And while it is still a draft, not even an approver or Finance sees it.
+  assert.ok(!(await S.listRequests(approver)).some(entry => entry.id === bobPrf.id));
+  assert.ok(!(await S.listRequests(finance)).some(entry => entry.id === bobPrf.id));
+  // Once submitted, it joins the queue.
+  await S.submitRequest(bob, bobPrf.id, "Bob Requester");
+  assert.ok((await S.listRequests(approver)).some(entry => entry.id === bobPrf.id));
 });
 
 
@@ -475,6 +481,87 @@ await check("a copied-in colleague is notified of the outcome, and the approver 
 await check("a malformed copy address is refused", () => {
   assert.throws(() => S.input.parseDraft(draft({ copyEmail: "not-an-address" })), /valid email/);
   assert.equal(S.input.parseDraft(draft({ copyEmail: "" })).copyEmail, "");
+});
+
+await check("nobody but the requester ever sees a draft", async () => {
+  const secret = await S.createDraft(alice, S.input.parseDraft(draft({ vendor: "Half-typed vendor" })));
+  for (const viewer of [approver, manager, finance, bob]) {
+    const seen = await S.listRequests(viewer);
+    assert.ok(!seen.some(entry => entry.id === secret.id), `${viewer.role} could see a draft`);
+    await rejects(() => S.getRequest(viewer, secret.id), "NotFoundError");
+  }
+  assert.ok((await S.listRequests(alice)).some(entry => entry.id === secret.id));
+  await S.deleteDraft(alice, secret.id);
+});
+
+await check("an approver sees what is waiting and what was approved", async () => {
+  const waiting = await S.createDraft(alice, S.input.parseDraft(draft()));
+  await S.submitRequest(alice, waiting.id, "Alice Requester");
+  const queue = await S.listRequests(approver);
+  assert.ok(queue.some(entry => entry.id === waiting.id && entry.status === "Awaiting Approval"));
+  assert.ok(queue.every(entry => entry.status !== "Draft"));
+
+  const decided = await S.decideRequest(approver, waiting.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.equal(decided.status, "Approved");
+  assert.ok((await S.listRequests(manager)).some(entry => entry.id === waiting.id));
+});
+
+await check("a returned request follows the approver who returned it", async () => {
+  const sent = await S.createDraft(alice, S.input.parseDraft(draft()));
+  await S.submitRequest(alice, sent.id, "Alice Requester");
+  const returned = await S.decideRequest(manager, sent.id, { action: "reject", comment: "Attach the quote.", signature: "" });
+  assert.equal(returned.returnedBy, manager.userId);
+  assert.equal(returned.returnedByName, manager.name);
+
+  // The approver who sent it back tracks it to resolution...
+  assert.ok((await S.listRequests(manager)).some(entry => entry.id === sent.id));
+  // ...a different approver does not inherit someone else's return...
+  assert.ok(!(await S.listRequests(approver)).some(entry => entry.id === sent.id));
+  await rejects(() => S.getRequest(approver, sent.id), "NotFoundError");
+  // ...the requester still has their own request, and Finance still has a complete register.
+  assert.ok((await S.listRequests(alice)).some(entry => entry.id === sent.id));
+  assert.ok((await S.listRequests(finance)).some(entry => entry.id === sent.id));
+});
+
+await check("an approval records the approver's name and their immutable id", async () => {
+  const prf = await S.createDraft(alice, S.input.parseDraft(draft()));
+  await S.submitRequest(alice, prf.id, "Alice Requester");
+  const approved = await S.decideRequest(approver, prf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.equal(approved.approverName, approver.name);
+  assert.equal(approved.approverId, approver.userId);
+  const entry = approved.audit.at(-1);
+  assert.equal(entry.actorId, approver.userId);
+  assert.equal(entry.actorName, approver.name);
+});
+
+await check("a rename is logged, and the log is append-only", async () => {
+  await S.upsertUser({ id: "u-rename", email: "manager@woodcraftrangers.org", firstName: "Marcus", lastName: "Lee", name: "Marcus Lee", contactEmail: "manager@woodcraftrangers.org", role: "MANAGER", district: "W", school: "Ops", passwordHash: "" });
+  const actor = { userId: "u-rename", email: "manager@woodcraftrangers.org", name: "Marcus Lee", role: "MANAGER" };
+
+  const renamed = await S.updateProfile(actor, { firstName: "Jane", lastName: "Doe", contactEmail: "jane.doe@woodcraftrangers.org" });
+  assert.equal(renamed.name, "Jane Doe");
+  assert.equal(renamed.role, "MANAGER", "a rename must not touch the position");
+
+  const log = await S.listAccountLog(finance);
+  const rename = log.find(entry => entry.subjectId === "u-rename" && entry.action === "Display name changed");
+  assert.ok(rename, "the rename was not logged");
+  assert.match(rename.detail, /"Marcus Lee" to "Jane Doe"/);
+  assert.equal(rename.actorId, "u-rename");
+  assert.ok(log.some(entry => entry.action === "Contact address changed"));
+
+  // A requester cannot read the account log at all.
+  await rejects(() => S.listAccountLog(alice), "Only Finance and administrators");
+});
+
+await check("a position change is logged against the administrator who made it", async () => {
+  const before = (await S.listAccountLog(finance)).length;
+  await S.assignRole(finance, "u-rename", "DIRECTOR");
+  const log = await S.listAccountLog(finance);
+  assert.equal(log.length, before + 1);
+  assert.equal(log[0].action, "Position changed");
+  assert.equal(log[0].actorId, finance.userId);
+  assert.equal(log[0].subjectId, "u-rename");
+  assert.match(log[0].detail, /Manager to Director/);
 });
 
 // ---- sessions --------------------------------------------------------------------------------------

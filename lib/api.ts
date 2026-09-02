@@ -17,6 +17,7 @@ import {
   SESSION_COOKIE,
   applySession,
   clearSessionCookies,
+  encodeSession,
   readSessionToken,
   startSession,
   type Session,
@@ -194,7 +195,10 @@ export function authenticated<T = unknown>(
 
       const params = (await segment?.params) || {};
       const response = await handler({ request, session, body, params });
-      return applySession(response, token, session.csrf);
+      // The cookie is re-encoded from the session the handler saw, not from the token read at the start.
+      // A handler that renames the account updates session.name, and the new name has to be on the cookie
+      // before the next request — otherwise the next approval would be signed with the old one.
+      return applySession(response, session.name === undefined ? token : encodeSession(session), session.csrf);
     } catch (error) {
       return errorResponse(error, options.name);
     }

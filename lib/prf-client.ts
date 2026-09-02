@@ -89,6 +89,7 @@ export type WireRequest = {
   approvedAt?: string;
   requesterSigned?: boolean;
   approverSigned?: boolean;
+  approverName?: string;
   reviewNote?: string;
 };
 
@@ -303,5 +304,6 @@ export function toViewRequest(wire: WireRequest): Request {
     reviewNote: wire.reviewNote,
     requesterSigned: wire.requesterSigned,
     approverSigned: wire.approverSigned,
+    approverName: wire.approverName,
   };
 }

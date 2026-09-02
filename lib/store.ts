@@ -200,7 +200,26 @@ export type StoredRequest = {
   approverSigned?: boolean;
   requesterSignature?: string;
   approverSignature?: string;
+  /** Display name and immutable id of whoever approved, so the record survives a later rename. */
+  approverName?: string;
+  approverId?: string;
   reviewNote?: string;
+  /** Who sent it back. An approver tracks their own returns through to resolution. */
+  returnedBy?: string;
+  returnedByName?: string;
+};
+
+/** One entry in the account log: a profile rename or a position change, always keyed to the user id. */
+export type AccountEvent = {
+  id: string;
+  at: string;
+  /** Who performed it. For a rename this is the account itself; for a position change, the administrator. */
+  actorId: string;
+  actorName: string;
+  /** The account the change was made to. */
+  subjectId: string;
+  action: string;
+  detail: string;
 };
 
 type Database = {
@@ -208,6 +227,7 @@ type Database = {
   users: StoredUser[];
   requests: StoredRequest[];
   notifications: StoredNotification[];
+  accountLog: AccountEvent[];
   revoked: { sid: string; expiresAt: number }[];
 };
 
@@ -244,7 +264,7 @@ const storePath = () =>
 /** Where the store lives. Anything else written alongside the data belongs in this directory too. */
 export const storeDirectory = () => path.dirname(storePath());
 
-const EMPTY: Database = { version: 1, users: [], requests: [], notifications: [], revoked: [] };
+const EMPTY: Database = { version: 1, users: [], requests: [], notifications: [], accountLog: [], revoked: [] };
 
 let cache: Database | null = null;
 let queue: Promise<unknown> = Promise.resolve();
@@ -274,6 +294,7 @@ async function readDatabase(): Promise<Database> {
         attachments: Array.isArray(request.attachments) ? request.attachments : [],
       })),
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+      accountLog: Array.isArray(parsed.accountLog) ? parsed.accountLog : [],
       revoked: Array.isArray(parsed.revoked) ? parsed.revoked : [],
     };
   } catch (error) {
@@ -306,6 +327,7 @@ function transaction<T>(work: (database: Database) => Promise<T> | T): Promise<T
     const draft: Database = JSON.parse(JSON.stringify(database));
     const result = await work(draft);
     assertAppendOnly(database.requests, draft.requests);
+    assertLogAppendOnly(database.accountLog, draft.accountLog);
     await writeDatabase(draft);
     return result;
   });
@@ -320,6 +342,15 @@ function transaction<T>(work: (database: Database) => Promise<T> | T): Promise<T
  * unchanged. A code path that edits history — or drops it while rebuilding a record — fails here instead
  * of quietly rewriting what a PRF's own history says happened.
  */
+/** The account log grows and is never rewritten, exactly like a request's own trail. */
+function assertLogAppendOnly(before: AccountEvent[], after: AccountEvent[]): void {
+  const kept = after.slice(0, before.length);
+  const same =
+    kept.length === before.length &&
+    kept.every((entry, index) => entry.id === before[index].id && entry.at === before[index].at && entry.action === before[index].action);
+  if (!same) throw new Error("the account log was modified rather than appended to");
+}
+
 function assertAppendOnly(before: StoredRequest[], after: StoredRequest[]): void {
   for (const original of before) {
     const updated = after.find(entry => entry.id === original.id);
@@ -380,9 +411,28 @@ function nextPrfNumber(requests: StoredRequest[]): string {
   return `PRF-FY27-${String(highest + 1).padStart(4, "0")}`;
 }
 
-/** A requester sees only their own requests; approvers and administrators see the whole register. */
-const visibleTo = (actor: Actor, request: StoredRequest) =>
-  isApprover(actor.role) || isAdmin(actor.role) || request.ownerId === actor.userId;
+/**
+ * Who may see a request.
+ *
+ * A draft is the requester's private working copy — an unfinished thought about money, with half-typed
+ * vendors and placeholder amounts. Nobody else sees it, at any position, ever. That is the one rule here
+ * with no exceptions.
+ *
+ * Beyond that: an approver's queue is the work in front of them — everything awaiting review, everything
+ * already approved, and the requests they personally sent back, so a return can be followed through to
+ * resolution rather than disappearing. A return by a different approver belongs to that approver.
+ *
+ * Finance and administrators see every submitted request, because the register, the exports and the grant
+ * reporting they answer for have to be complete. Drafts stay out of that too.
+ */
+const visibleTo = (actor: Actor, request: StoredRequest) => {
+  if (request.ownerId === actor.userId) return true;
+  if (request.status === "Draft") return false;
+  if (isAdmin(actor.role)) return true;
+  if (!isApprover(actor.role)) return false;
+  if (request.status === "Returned") return request.returnedBy === actor.userId;
+  return true;
+};
 
 /**
  * Locates a request the actor is allowed to know exists.
@@ -509,6 +559,18 @@ export async function isRevoked(sid: string): Promise<boolean> {
 // the people who could actually authorise it; an outcome goes to the person who asked and to the colleague
 // they copied in.
 
+const accountEvent = (
+  database: Database,
+  actor: Actor,
+  subjectId: string,
+  action: string,
+  detail: string,
+): void => {
+  database.accountLog.push({
+    id: randomUUID(), at: now(), actorId: actor.userId, actorName: actor.name, subjectId, action, detail,
+  });
+};
+
 const notification = (
   database: Database,
   entry: Omit<StoredNotification, "id" | "at" | "read">,
@@ -521,6 +583,15 @@ const notification = (
 /** Everyone whose position could sign off this amount — the people the request is actually waiting on. */
 const approversFor = (database: Database, amount: number) =>
   database.users.filter(user => canApprove(user.role, amount));
+
+/** The account log. Administrators only — it names who changed whose position, and when. */
+export async function listAccountLog(actor: Actor): Promise<AccountEvent[]> {
+  if (!isAdmin(actor.role)) throw new ForbiddenError("Only Finance and administrators can read the account log");
+  const database = await readDatabase();
+  // Reversed rather than sorted by timestamp: the log is append-only, so insertion order IS chronological,
+  // and two events in the same millisecond would otherwise come back in an arbitrary order.
+  return [...database.accountLog].reverse().slice(0, 200);
+}
 
 export async function listNotifications(actor: Actor): Promise<StoredNotification[]> {
   const database = await readDatabase();
@@ -690,8 +761,14 @@ export async function decideRequest(actor: Actor, id: string, decision: Decision
       request.approvedAt = stamp;
       request.approverSigned = true;
       request.approverSignature = decision.signature;
+      // Both, deliberately: the name is what a reader of the PRF needs, and the id is what survives the
+      // approver later changing their name. An audit that kept only the name would go ambiguous.
+      request.approverName = actor.name;
+      request.approverId = actor.userId;
     } else {
       request.reviewNote = decision.comment;
+      request.returnedBy = actor.userId;
+      request.returnedByName = actor.name;
     }
     request.approvals = request.approvals.map((approval, index) =>
       index === request.approvals.length - 1
@@ -785,10 +862,17 @@ export async function updateProfile(actor: Actor, input: ProfileInput): Promise<
   return transaction(database => {
     const user = database.users.find(entry => entry.id === actor.userId);
     if (!user) throw new NotFoundError("That account could not be found");
+    const before = { name: user.name, contactEmail: user.contactEmail };
     user.firstName = input.firstName;
     user.lastName = input.lastName;
     user.name = `${input.firstName} ${input.lastName}`.trim() || user.email;
     user.contactEmail = input.contactEmail || user.email;
+    if (before.name !== user.name) {
+      accountEvent(database, actor, user.id, "Display name changed", `"${before.name}" to "${user.name}"`);
+    }
+    if (before.contactEmail !== user.contactEmail) {
+      accountEvent(database, actor, user.id, "Contact address changed", `"${before.contactEmail}" to "${user.contactEmail}"`);
+    }
     return user;
   });
 }
@@ -806,7 +890,11 @@ export async function assignRole(actor: Actor, userId: string, role: Role): Prom
   return transaction(database => {
     const user = database.users.find(entry => entry.id === userId);
     if (!user) throw new NotFoundError("That account could not be found");
+    const previous = user.role;
     user.role = role;
+    if (previous !== role) {
+      accountEvent(database, actor, user.id, "Position changed", `${ROLE_LABEL[previous]} to ${ROLE_LABEL[role]}`);
+    }
     return user;
   });
 }

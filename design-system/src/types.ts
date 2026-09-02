@@ -65,6 +65,8 @@ export type Request = {
   reviewNote?: string;
   requesterSigned?: boolean;
   approverSigned?: boolean;
+  /** Printed name of whoever approved, for the supervisor block on the form and the PDF. */
+  approverName?: string;
   /** @deprecated Migrated into `requesterSigned`; retained so stored records still parse. */
   docuSignRequesterSigned?: boolean;
   /** @deprecated Migrated into `approverSigned`; retained so stored records still parse. */
