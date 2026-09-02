@@ -159,6 +159,8 @@ export const emptyPrfForm = (): PrfFormState => ({
   vendorAddress: "",
   vendorCity: "",
   vendorEmail: "",
+  copyName: "",
+  copyEmail: "",
   description: "",
   amount: "",
   district: "Woodcraft",

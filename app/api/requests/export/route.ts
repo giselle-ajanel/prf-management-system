@@ -26,7 +26,7 @@ const toExportShape = (request: StoredRequest): Request =>
   }) as unknown as Request;
 
 export const GET = authenticated(
-  { name: "requests.export", roles: ["APPROVER"] },
+  { name: "requests.export", authority: "register" },
   async ({ session, request }) => {
     const status = line(request.nextUrl.searchParams.get("status") || "", "Status", 40, false);
     const month = line(request.nextUrl.searchParams.get("month") || "", "Month", 10, false);

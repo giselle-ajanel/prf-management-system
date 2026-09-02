@@ -1,0 +1,61 @@
+/* The Copy recipient block, the supporting-documents zone, and the profile settings view. */
+
+.copyBlock{margin-top:15px;padding:14px 16px;border:1px dashed var(--line);border-radius:10px;background:var(--beige)}
+.copyBlock h3{margin:0 0 10px;font-size:11px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:var(--teal-dark)}
+.copyBlock label{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:10px;margin-bottom:8px;font-size:11px;font-weight:700}
+.copyBlock input{width:100%;height:32px;padding:0 10px;border:1px solid #c8cfca;border-radius:7px;background:#fff;font-size:12px}
+.copyBlock small{display:block;margin-top:4px;color:var(--muted);font-size:10px;line-height:1.5}
+
+.attachments{margin-top:22px}
+.attachments h3{margin:0 0 11px;font-size:12px;font-weight:850;letter-spacing:.05em;text-transform:uppercase;color:var(--ink)}
+.dropZone{
+  display:grid;justify-items:center;gap:9px;padding:24px 20px;text-align:center;
+  border:2px dashed #b9c3bd;border-radius:14px;background:var(--beige);
+}
+.dropZone.isOver{border-color:var(--teal);background:#eef4f3}
+.dropZone.isDisabled{opacity:.62}
+.dropZone strong{font-size:13px}
+.dropZone small{color:var(--muted);font-size:11px}
+.dropZone button{padding:9px 15px!important;font-size:12px}
+
+.attachmentError{margin:11px 0 0;padding:10px 13px;border-left:3px solid var(--coral);border-radius:0 8px 8px 0;background:#fdf3ef;color:#8f3a20;font-size:11.5px;font-weight:700;line-height:1.5}
+
+.attachmentList{margin:13px 0 0;padding:0;list-style:none;display:grid;gap:7px}
+.attachmentList li{
+  display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:13px;
+  padding:10px 13px;border:1px solid var(--line);border-radius:9px;background:var(--paper);
+}
+.attachmentName{font-size:12.5px;overflow-wrap:anywhere}
+.attachmentSize{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Profile settings */
+.profilePage{display:grid;gap:22px;max-width:860px}
+.profileCard{padding:26px 28px;border:1px solid var(--line);border-radius:6px 26px 6px 26px;background:var(--paper);box-shadow:var(--shadow)}
+.profileCard h2{margin:0;font-size:23px;letter-spacing:-.02em}
+.profileLead{margin:7px 0 20px;color:var(--muted);font-size:13px;line-height:1.55}
+.profileCard form{display:grid;gap:15px;max-width:520px}
+.profileRow{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.profileCard label{display:grid;gap:6px}
+.profileCard label span{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.profileCard input{width:100%;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--beige);font-size:14px}
+.profileFixed{display:grid;grid-template-columns:1fr 1fr;gap:1px;overflow:hidden;border:1px solid var(--line);border-radius:11px;background:var(--line)}
+.profileFixed>div{display:grid;gap:3px;padding:13px 15px;background:var(--beige)}
+.profileFixed small{color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.1em}
+.profileFixed strong{font-size:13px;overflow-wrap:anywhere}
+.profileFixed span{color:var(--muted);font-size:10.5px;line-height:1.45}
+.profileNotice{margin:0 0 15px;padding:11px 14px;border-left:4px solid #059669;border-radius:0 8px 8px 0;background:#ecfdf5;color:#065f46;font-size:12px;font-weight:600}
+.profileError{margin:0 0 15px;padding:11px 14px;border-left:4px solid var(--coral);border-radius:0 8px 8px 0;background:#fdf3ef;color:#7c3324;font-size:12px;font-weight:600}
+
+.directoryTable{width:100%;border-collapse:collapse;font-size:13px}
+.directoryTable th{text-align:left;padding:0 12px 9px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.directoryTable td{padding:10px 12px 10px 0;border-bottom:1px solid var(--line-soft,#e9e7e0);vertical-align:middle}
+.directoryTable tr:last-child td{border-bottom:0}
+.directoryEmail{color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.directoryTable select{height:34px;min-width:170px;padding:0 9px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px}
+.directorySelf{color:var(--muted);font-size:12px}
+
+@media(max-width:640px){
+  .profileRow,.profileFixed{grid-template-columns:1fr}
+  .copyBlock label{grid-template-columns:1fr}
+  .attachmentList li{grid-template-columns:1fr auto}
+}

@@ -66,6 +66,46 @@ const cases = [
   ["LoginScreen.blank", () => createElement(ds.LoginScreen, { onSubmit: noop })],
   ["LoginScreen.error", () => createElement(ds.LoginScreen, { onSubmit: noop, error: "That email and password combination was not recognised", notice: "Your session ended after an hour of inactivity. Please sign in again." })],
   ["LoginScreen.sso", () => createElement(ds.LoginScreen, { onSubmit: noop, passwordLoginEnabled: false })],
+  // Supporting documents, in each of the three states the zone can be in.
+  ["AttachmentZone.empty", () => createElement(ds.AttachmentZone, { attachments: [], onAdd: noop, onRemove: noop })],
+  ["AttachmentZone.locked", () => createElement(ds.AttachmentZone, { attachments: [], onAdd: noop, onRemove: noop, enabled: false })],
+  ["AttachmentZone.files", () => createElement(ds.AttachmentZone, {
+    attachments: [
+      { id: "a1", name: "Northstar quote.pdf", size: 284_119, type: "application/pdf" },
+      { id: "a2", name: "W-9.pdf", size: 61_204, type: "application/pdf" },
+      { id: "a3", name: "receipt.jpg", size: 1_884_432, type: "image/jpeg" },
+    ],
+    onAdd: noop, onRemove: noop,
+    error: "payload.exe is a program or script and cannot be attached.",
+  })],
+  // Profile settings as a requester sees it, and as Finance sees it with the directory attached.
+  ["ProfileSettings.requester", () => createElement(ds.ProfileSettings, {
+    profile: { firstName: "Giselle", lastName: "Ajanel", email: "giselle.ajanel@woodcraftrangers.org", contactEmail: "giselle.ajanel@woodcraftrangers.org" },
+    roleLabel: "Requester", onSave: noop,
+  })],
+  ["ProfileSettings.finance", () => createElement(ds.ProfileSettings, {
+    profile: { firstName: "Tomas", lastName: "Reyes", email: "finance@woodcraftrangers.org", contactEmail: "finance@woodcraftrangers.org" },
+    roleLabel: "Finance", onSave: noop, notice: "Ana Rivera is now Senior Director.",
+    currentUserId: "u-fin",
+    roleOptions: [
+      { value: "REQUESTER", label: "Requester" }, { value: "MANAGER", label: "Manager" },
+      { value: "DIRECTOR", label: "Director" }, { value: "SENIOR_DIRECTOR", label: "Senior Director" },
+      { value: "CHIEF", label: "Chief" }, { value: "CFO", label: "CFO" }, { value: "CEO", label: "CEO" },
+      { value: "FINANCE", label: "Finance" }, { value: "ADMIN", label: "Administrator" },
+    ],
+    directory: [
+      { id: "u-fin", name: "Tomas Reyes", email: "finance@woodcraftrangers.org", role: "FINANCE" },
+      { id: "u-dir", name: "Ana Rivera", email: "director@woodcraftrangers.org", role: "DIRECTOR" },
+      { id: "u-req", name: "Giselle Ajanel", email: "giselle.ajanel@woodcraftrangers.org", role: "REQUESTER" },
+    ],
+    onAssignRole: noop,
+  })],
+  ["RequestForm.copy-and-files", () => createElement(ds.RequestForm, {
+    ...formBase,
+    form: { ...ds.filledPrfForm(), copyName: "Dana Whitfield", copyEmail: "dana.whitfield@woodcraftrangers.org" },
+    attachmentsEnabled: true, onAttach: noop, onRemoveAttachment: noop,
+    attachments: [{ id: "a1", name: "Northstar quote.pdf", size: 284_119, type: "application/pdf" }],
+  })],
   ["Finance.unfiltered", () => createElement(ds.Finance, { requests: ds.sampleRequests, all: ds.sampleRequests, filters: ds.emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
   ["Finance.no-matches", () => createElement(ds.Finance, { requests: [], all: ds.sampleRequests, filters: { ...ds.emptyFinanceFilters, query: "zzz" }, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
   ["QueueItem.awaiting", () => createElement(ds.QueueItem, { request: awaiting, onOpen: noop })],

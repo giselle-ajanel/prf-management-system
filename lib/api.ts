@@ -8,8 +8,9 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
-  findUserByEmail,
-  upsertUser,
+  isAdmin,
+  isApprover,
+  provisionFromIdentity,
   type Role,
 } from "./store";
 import {
@@ -48,6 +49,12 @@ export type Context<T = unknown> = {
 export type RouteOptions = {
   /** Roles allowed to call this route. Omitted means any authenticated user. */
   roles?: Role[];
+  /**
+   * Coarser gate than naming roles, so adding a position to the ladder does not mean revisiting every
+   * route. "approver" is anyone with signing authority, "admin" is Finance or Administrator, and
+   * "register" is either — the people entitled to see the whole book rather than their own requests.
+   */
+  authority?: "approver" | "admin" | "register";
   /** Mutations require a CSRF token and are held to a write budget. */
   mutation?: boolean;
   budget?: Budget;
@@ -113,18 +120,7 @@ async function resolveSession(request: NextRequest): Promise<
 
   const identity = await optionalIdentity();
   if (identity) {
-    const existing = await findUserByEmail(identity.email);
-    const user =
-      existing ||
-      (await upsertUser({
-        id: `sso-${Buffer.from(identity.email).toString("hex").slice(0, 24)}`,
-        email: identity.email,
-        name: identity.name,
-        role: "REQUESTER",
-        district: identity.district,
-        school: identity.school,
-        passwordHash: "",
-      }));
+    const user = await provisionFromIdentity(identity);
     const started = startSession(user);
     return { ok: true, session: started.session, token: started.token };
   }
@@ -155,6 +151,15 @@ export function authenticated<T = unknown>(
       if (options.roles && !options.roles.includes(session.role)) {
         return json({ error: "You do not have access to this area" }, { status: 403 });
       }
+      if (options.authority) {
+        const allowed =
+          options.authority === "approver"
+            ? isApprover(session.role)
+            : options.authority === "admin"
+              ? isAdmin(session.role)
+              : isApprover(session.role) || isAdmin(session.role);
+        if (!allowed) return json({ error: "You do not have access to this area" }, { status: 403 });
+      }
 
       if (options.mutation) {
         const failure = csrfFailure(request, session);
@@ -171,7 +176,11 @@ export function authenticated<T = unknown>(
       }
 
       let body: T = undefined as T;
-      if (options.mutation && request.method !== "DELETE") {
+      // A multipart upload is read by its own handler, which needs the stream intact. Parsing it here
+      // would consume the body and leave the handler with nothing — the bug that made every file upload
+      // fail with "Request body must be valid JSON".
+      const multipart = (request.headers.get("content-type") || "").toLowerCase().startsWith("multipart/form-data");
+      if (options.mutation && request.method !== "DELETE" && !multipart) {
         const raw = await request.text();
         if (raw.length > MAX_BODY_BYTES) return json({ error: "Request body too large" }, { status: 413 });
         if (raw) {

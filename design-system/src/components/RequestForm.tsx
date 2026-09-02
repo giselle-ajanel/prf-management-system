@@ -8,6 +8,7 @@ import { buildFundingOptions, fundingChoicesFor } from "../funding";
 import { RuleBanner } from "./RuleBanner";
 import { SearchableCombobox } from "./SearchableCombobox";
 import { SignatureField, type SignatureMode } from "./SignatureField";
+import { AttachmentZone, type AttachmentSummary } from "./AttachmentZone";
 
 /**
  * One editable line in the PRF table. Every field is a string — this is raw form state, not parsed data.
@@ -30,6 +31,9 @@ export type PrfFormState = {
   vendorAddress: string;
   vendorCity: string;
   vendorEmail: string;
+  /** Colleague copied in for visibility on this request. */
+  copyName: string;
+  copyEmail: string;
   description: string;
   amount: string;
   district: string;
@@ -254,6 +258,14 @@ export type RequestFormProps = {
   onProceed: () => void;
   /** Deletes the draft being edited. Omit for a PRF that has never been saved — there is nothing to delete. */
   onDelete?: () => void;
+  /** Files already attached to this request. */
+  attachments?: AttachmentSummary[];
+  onAttach?: (files: File[]) => void;
+  onRemoveAttachment?: (id: string) => void;
+  /** False until the draft exists on the server and a file has somewhere to go. */
+  attachmentsEnabled?: boolean;
+  attachmentError?: string;
+  attachmentBusy?: boolean;
   /** Policy banners. Defaults to {@link DEFAULT_PRF_RULES}. */
   rules?: PrfRule[];
   /** Maps an accounting row's `source` to its group heading. Defaults to {@link DEFAULT_SITE_GROUPS}. */
@@ -307,6 +319,12 @@ export function RequestForm({
   onSave,
   onProceed,
   onDelete,
+  attachments = [],
+  onAttach,
+  onRemoveAttachment,
+  attachmentsEnabled = false,
+  attachmentError = "",
+  attachmentBusy = false,
   rules = DEFAULT_PRF_RULES,
   siteGroups = DEFAULT_SITE_GROUPS,
   groupOrder = SITE_GROUP_ORDER,
@@ -419,6 +437,10 @@ export function RequestForm({
     if (!form.requestorName.trim()) problems.requestorName = "Print your name.";
     if (!form.requestorSignature) problems.signature = "Sign before submitting.";
     if (!form.requestorDate) problems.requestorDate = "Add the date.";
+    // A malformed copy address means someone silently never hears about the request.
+    if (form.copyEmail.trim() && !/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(form.copyEmail.trim())) {
+      problems.copyEmail = "Enter a valid email address, or leave Copy blank.";
+    }
     if (blocked) problems.rules = "Resolve the highlighted policy issue above before submitting.";
     return problems;
   };
@@ -594,6 +616,30 @@ export function RequestForm({
               <input type="email" value={form.vendorEmail} onChange={event => update({ vendorEmail: event.target.value })} />
             </label>
           </section>
+          {/* Copy: a site lead or coordinator who should see what happens to this request without having
+              any say over it. They are notified of the outcome, and that is the whole of their part. */}
+          <section className="copyBlock">
+            <h3>Copy:</h3>
+            <label>
+              Name:
+              <input
+                value={form.copyName}
+                onChange={event => update({ copyName: event.target.value })}
+                placeholder="Site lead or coordinator"
+              />
+            </label>
+            <label {...flag("copyEmail")}>
+              Email:
+              <input
+                type="email"
+                value={form.copyEmail}
+                onChange={event => update({ copyEmail: event.target.value })}
+                placeholder="name@woodcraftrangers.org"
+              />
+            </label>
+            {message("copyEmail")}
+            <small>Copied colleagues are notified when this request is approved or sent back.</small>
+          </section>
           <div className="lineTableWrap" {...flag("lines")}>
             <table className="nativeLineTable">
               <thead>
@@ -659,6 +705,14 @@ export function RequestForm({
             {message("lines")}
             {message("amount")}
           </div>
+          <AttachmentZone
+            attachments={attachments}
+            onAdd={files => onAttach?.(files)}
+            onRemove={id => onRemoveAttachment?.(id)}
+            enabled={attachmentsEnabled && Boolean(onAttach)}
+            error={attachmentError}
+            busy={attachmentBusy}
+          />
           {active.map(rule => (
             <RuleBanner key={rule.id} tone={rule.tone} title={rule.title} message={rule.message} />
           ))}

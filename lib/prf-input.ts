@@ -54,6 +54,10 @@ export function parseDraft(body: unknown): DraftInput {
     // Validated only when present: a draft may not have reached this field yet, but a malformed address
     // should be corrected while the requester is still looking at the form.
     vendorEmail: payload.vendorEmail ? emailAddress(payload.vendorEmail, "Vendor email") : "",
+    // The colleague copied in for visibility. Both halves are optional, but an address that is present
+    // has to be a real one — a typo here means someone silently never hears about the request.
+    copyName: line(payload.copyName, "Copy name", 120, false),
+    copyEmail: payload.copyEmail ? emailAddress(payload.copyEmail, "Copy email") : "",
     description: optionalText(payload.description, "Description", 2000),
     justification: optionalText(payload.justification, "Justification", 2000),
     district: line(payload.district, "District", 120, false),

@@ -3,7 +3,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import fs from "node:fs";
 import path from "node:path";
 import type { NextResponse } from "next/server";
-import { isRevoked, revokeSession, type Role } from "./store";
+import { ROLES, isRevoked, revokeSession, type Role } from "./store";
 
 // Session tokens.
 //
@@ -100,7 +100,7 @@ function decodeSession(token: string): Session | null {
     const shaped =
       typeof session.sid === "string" &&
       typeof session.userId === "string" &&
-      (session.role === "REQUESTER" || session.role === "APPROVER") &&
+      (ROLES as string[]).includes(session.role) &&
       Number.isFinite(session.issuedAt) &&
       Number.isFinite(session.lastSeen);
     return shaped ? session : null;

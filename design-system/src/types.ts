@@ -5,7 +5,7 @@
 // shapes are lifted verbatim from the app's original declarations.
 
 /** Top-level destination in the Hub's primary navigation. */
-export type View = "overview" | "requests" | "approvals" | "finance";
+export type View = "overview" | "requests" | "approvals" | "finance" | "profile";
 
 /** Lifecycle state of a purchase request. Drives StatusPill colour and every queue filter. */
 export type Status = "Draft" | "Awaiting Approval" | "Returned" | "Approved";

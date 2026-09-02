@@ -63,3 +63,5 @@
 @import "./28-login.css";
 /* Editor footer actions, save/failure status colours, and pre-submission validation. */
 @import "./29-editor-validation.css";
+/* Copy recipient block, supporting-document uploads, and profile settings. */
+@import "./30-copy-attachments-profile.css";

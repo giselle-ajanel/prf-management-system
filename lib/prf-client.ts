@@ -11,7 +11,33 @@ import type { Approval, AuditEvent, LineItem, Request, Status } from "@ds";
 // The types below mirror what the routes return rather than importing the server's own types: lib/store.ts
 // is server-only, and a shared type would tempt someone to import the module behind it into the bundle.
 
-export type Role = "REQUESTER" | "APPROVER";
+export type Role =
+  | "REQUESTER" | "MANAGER" | "DIRECTOR" | "SENIOR_DIRECTOR" | "CHIEF" | "CFO" | "CEO" | "FINANCE" | "ADMIN";
+
+/** Mirrors the server's ladder so the interface can label a position and hide what it cannot use. */
+export const ROLE_LABELS: Record<Role, string> = {
+  REQUESTER: "Requester",
+  MANAGER: "Manager",
+  DIRECTOR: "Director",
+  SENIOR_DIRECTOR: "Senior Director",
+  CHIEF: "Chief",
+  CFO: "CFO",
+  CEO: "CEO",
+  FINANCE: "Finance",
+  ADMIN: "Administrator",
+};
+
+const APPROVAL_LIMITS: Record<Role, number> = {
+  REQUESTER: 0, MANAGER: 5000, DIRECTOR: 15000, SENIOR_DIRECTOR: 25000, CHIEF: 75000,
+  CFO: Infinity, CEO: Infinity, FINANCE: 0, ADMIN: 0,
+};
+
+export const approvalLimit = (role: Role) => APPROVAL_LIMITS[role] ?? 0;
+export const isApprover = (role: Role) => approvalLimit(role) > 0;
+export const isAdmin = (role: Role) => role === "FINANCE" || role === "ADMIN";
+/** Everyone entitled to the whole register rather than only their own requests. */
+export const seesRegister = (role: Role) => isApprover(role) || isAdmin(role);
+export const canApprove = (role: Role, amount: number) => isApprover(role) && amount > 0 && amount <= approvalLimit(role);
 
 export type SessionUser = {
   name: string;
@@ -50,8 +76,11 @@ export type WireRequest = {
   expenseType?: string;
   customSite?: boolean;
   customFunding?: boolean;
+  copyName?: string;
+  copyEmail?: string;
   lineItems: LineItem[];
   documents: string[];
+  attachments?: { id: string; name: string; size: number; type: string }[];
   approvals: Approval[];
   audit: WireAudit[];
   createdAt: string;
@@ -164,6 +193,61 @@ export const decideRequest = (id: string, action: "approve" | "reject", comment:
     body: JSON.stringify({ action, comment, signature }),
   }).then(p => p.request);
 
+// ---- profile, directory, notifications, attachments -------------------------------------------------
+
+export type Profile = {
+  firstName: string; lastName: string; email: string; contactEmail: string;
+  role: Role; district?: string; school?: string;
+};
+
+export const getProfile = () => send<{ profile: Profile }>("/api/profile").then(p => p.profile);
+
+export const saveProfile = (fields: { firstName: string; lastName: string; contactEmail: string }) =>
+  send<{ profile: Profile }>("/api/profile", { method: "PUT", body: JSON.stringify(fields) }).then(p => p.profile);
+
+export type DirectoryUser = { id: string; name: string; email: string; contactEmail: string; role: Role };
+
+export const listUsers = () => send<{ users: DirectoryUser[] }>("/api/users").then(p => p.users);
+
+export const assignRole = (userId: string, role: string) =>
+  send<{ user: DirectoryUser }>("/api/users", { method: "PUT", body: JSON.stringify({ userId, role }) }).then(p => p.user);
+
+export type ServerNotification = {
+  id: string; at: string; kind: "submitted" | "approved" | "returned";
+  requestId: string; title: string; body: string; read: boolean;
+};
+
+export const fetchNotifications = () =>
+  send<{ notifications: ServerNotification[] }>("/api/notifications").then(p => p.notifications);
+
+export const markNotificationsRead = () =>
+  send<{ read: boolean }>("/api/notifications", { method: "POST", body: JSON.stringify({}) });
+
+/** Uploads one file. Multipart, so the browser sets its own boundary — no Content-Type header from us. */
+export async function uploadAttachment(requestId: string, file: File): Promise<WireRequest> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`/api/requests/${encodeURIComponent(requestId)}/attachments`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: csrfToken ? { "x-csrf-token": csrfToken } : {},
+    body,
+  });
+  if (response.status === 401) throw new SessionEndedError();
+  const payload = (await response.json().catch(() => ({}))) as { request?: WireRequest; error?: string };
+  if (!response.ok || !payload.request) throw new Error(payload.error || "That file could not be attached");
+  return payload.request;
+}
+
+export const removeAttachment = (requestId: string, fileId: string) =>
+  send<{ deleted: boolean }>(
+    `/api/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(fileId)}`,
+    { method: "DELETE" },
+  );
+
+export const attachmentUrl = (requestId: string, fileId: string) =>
+  `/api/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(fileId)}`;
+
 // ---- presentation ----------------------------------------------------------------------------------
 
 const stamp = (iso: string | undefined) => {
@@ -208,7 +292,8 @@ export function toViewRequest(wire: WireRequest): Request {
     lineItems: wire.lineItems,
     approvals: wire.approvals.map(approval => ({ ...approval, time: approval.time ? stamp(approval.time) : undefined })),
     audit,
-    documents: wire.documents,
+    // Components render document names; the ids they came from stay on the wire record.
+    documents: (wire.attachments || []).map(file => file.name),
     approvedAt: wire.approvedAt,
     submittedAt: wire.submittedAt,
     paymentType: wire.paymentType,

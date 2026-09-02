@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 // is no parameter here through which the reviewed content could be edited.
 
 export const POST = authenticated(
-  { name: "requests.decision", mutation: true, roles: ["APPROVER"], budget: BUDGETS.submit },
+  { name: "requests.decision", mutation: true, authority: "approver", budget: BUDGETS.submit },
   async ({ session, params, body }) => {
     const payload = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
     const action = decisionAction(payload.action);

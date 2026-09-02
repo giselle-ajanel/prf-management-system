@@ -129,7 +129,11 @@ const normalized=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]/g,"");
 const inactiveWord=(value:string)=>/^(in-?active|not\s*active|no|n)$/i.test(value.trim());
 const inactive=(row:AccountingCode)=>inactiveWord(row.status)||/\b(in-?active|not\s+active)\b/i.test(row.notes);
 const summerExpired=(row:AccountingCode,now:Date)=>/deactivate|desactivate/i.test(row.notes)&&/summer\s*2026/i.test(row.notes)&&now>=new Date("2026-09-01T00:00:00-07:00");
-const available=(row:AccountingCode,now:Date)=>!inactive(row)&&!summerExpired(row,now)&&Boolean(row.siteName);
+// 99xx site codes are retired. They still sit in the workbook, so the filter lives here — in the one
+// place every dropdown and lookup reads from — rather than in each caller, where a new caller would miss it.
+export const RETIRED_SITE_PREFIX="99";
+export const isRetiredSite=(siteCode:string)=>/^99/.test(siteCode.trim());
+const available=(row:AccountingCode,now:Date)=>!inactive(row)&&!summerExpired(row,now)&&!isRetiredSite(row.siteCode)&&Boolean(row.siteName);
 const withAvailability=(row:AccountingCode)=>({...row,availability:/deactivate|desactivate/i.test(row.notes)&&/summer\s*2026/i.test(row.notes)?"expiring" as const:"active" as const});
 const bySiteThenFunding=(a:AccountingCode,b:AccountingCode)=>a.siteName.localeCompare(b.siteName)||a.siteCode.localeCompare(b.siteCode)||a.fundingSource.localeCompare(b.fundingSource);
 // Site identity is Site Code + Site Name: the workbook reuses a few codes across genuinely different sites

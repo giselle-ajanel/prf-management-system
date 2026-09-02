@@ -19,7 +19,77 @@ import { FieldError } from "./sanitize";
 // rename, which is correct for one Node process and is one of the reasons this is a prototype store rather
 // than a production one.
 
-export type Role = "REQUESTER" | "APPROVER";
+/**
+ * Positions in the organisation, not job titles: each one carries a signing limit or an administrative
+ * privilege, and nothing else in the system asks what a person is called.
+ *
+ * FINANCE and ADMIN sit outside the signing ladder deliberately. They can see the whole register and
+ * reassign roles, but they cannot authorise spending — administering the system and approving money are
+ * different powers, and the people who hold one should not silently hold the other.
+ */
+export type Role =
+  | "REQUESTER"
+  | "MANAGER"
+  | "DIRECTOR"
+  | "SENIOR_DIRECTOR"
+  | "CHIEF"
+  | "CFO"
+  | "CEO"
+  | "FINANCE"
+  | "ADMIN";
+
+export const ROLES: Role[] = [
+  "REQUESTER", "MANAGER", "DIRECTOR", "SENIOR_DIRECTOR", "CHIEF", "CFO", "CEO", "FINANCE", "ADMIN",
+];
+
+/** The most a position may authorise. 0 means no signing authority at all. */
+const APPROVAL_LIMIT: Record<Role, number> = {
+  REQUESTER: 0,
+  MANAGER: 5000,
+  DIRECTOR: 15000,
+  SENIOR_DIRECTOR: 25000,
+  CHIEF: 75000,
+  CFO: Number.POSITIVE_INFINITY,
+  CEO: Number.POSITIVE_INFINITY,
+  FINANCE: 0,
+  ADMIN: 0,
+};
+
+/** Human label for a position, used in the interface and in notification wording. */
+export const ROLE_LABEL: Record<Role, string> = {
+  REQUESTER: "Requester",
+  MANAGER: "Manager",
+  DIRECTOR: "Director",
+  SENIOR_DIRECTOR: "Senior Director",
+  CHIEF: "Chief",
+  CFO: "CFO",
+  CEO: "CEO",
+  FINANCE: "Finance",
+  ADMIN: "Administrator",
+};
+
+export const approvalLimit = (role: Role) => APPROVAL_LIMIT[role] ?? 0;
+
+/** Anyone who can sign off on spending, at any level. */
+export const isApprover = (role: Role) => approvalLimit(role) > 0;
+
+/** Anyone who administers the system: the whole register, exports, and role assignment. */
+export const isAdmin = (role: Role) => role === "FINANCE" || role === "ADMIN";
+
+/** Whether this position may authorise this amount. */
+export const canApprove = (role: Role, amount: number) =>
+  isApprover(role) && Number.isFinite(amount) && amount > 0 && amount <= approvalLimit(role);
+
+/**
+ * Roles stored before the ladder existed read as "APPROVER". Director is the closest equivalent: it is the
+ * tier the original single approver was routed requests at.
+ */
+export const normalizeRole = (value: unknown): Role => {
+  const role = String(value || "");
+  if (role === "APPROVER") return "DIRECTOR";
+  return (ROLES as string[]).includes(role) ? (role as Role) : "REQUESTER";
+};
+
 export type Status = "Draft" | "Awaiting Approval" | "Returned" | "Approved";
 
 /** Whoever is performing the operation. Structurally satisfied by a Session, so no import cycle. */
@@ -27,8 +97,14 @@ export type Actor = { userId: string; email: string; name: string; role: Role };
 
 export type StoredUser = {
   id: string;
+  /** Sign-in address. Immutable once created — changing it would change who the account is. */
   email: string;
+  firstName: string;
+  lastName: string;
+  /** Display name, kept in step with the two name fields so every consumer has one string to read. */
   name: string;
+  /** Where this person wants to be contacted, which is not always the address they sign in with. */
+  contactEmail: string;
   role: Role;
   district: string;
   school: string;
@@ -42,6 +118,30 @@ export type StoredUser = {
  * sites, and the printed form has a column for each. They are optional because a draft is allowed to be
  * half-filled.
  */
+/** One uploaded file. The bytes live beside the store; this is the record that points at them. */
+export type StoredAttachment = {
+  id: string;
+  name: string;
+  size: number;
+  /** The type the server determined by inspecting the bytes, not the one the browser claimed. */
+  type: string;
+  uploadedAt: string;
+  uploadedBy: string;
+};
+
+/** An in-app notification, addressed to an account or — for a copied-in colleague — to an address. */
+export type StoredNotification = {
+  id: string;
+  at: string;
+  kind: "submitted" | "approved" | "returned";
+  requestId: string;
+  title: string;
+  body: string;
+  userId?: string;
+  email?: string;
+  read: boolean;
+};
+
 export type StoredLine = {
   description: string;
   quantity: number;
@@ -84,8 +184,12 @@ export type StoredRequest = {
   expenseType?: string;
   customSite?: boolean;
   customFunding?: boolean;
+  /** Person copied in for visibility. Notified alongside the requester, but has no rights over the PRF. */
+  copyName?: string;
+  copyEmail?: string;
   lineItems: StoredLine[];
   documents: string[];
+  attachments: StoredAttachment[];
   approvals: StoredApproval[];
   audit: StoredAudit[];
   createdAt: string;
@@ -103,6 +207,7 @@ type Database = {
   version: number;
   users: StoredUser[];
   requests: StoredRequest[];
+  notifications: StoredNotification[];
   revoked: { sid: string; expiresAt: number }[];
 };
 
@@ -139,7 +244,7 @@ const storePath = () =>
 /** Where the store lives. Anything else written alongside the data belongs in this directory too. */
 export const storeDirectory = () => path.dirname(storePath());
 
-const EMPTY: Database = { version: 1, users: [], requests: [], revoked: [] };
+const EMPTY: Database = { version: 1, users: [], requests: [], notifications: [], revoked: [] };
 
 let cache: Database | null = null;
 let queue: Promise<unknown> = Promise.resolve();
@@ -151,8 +256,24 @@ async function readDatabase(): Promise<Database> {
     const parsed = JSON.parse(raw) as Partial<Database>;
     cache = {
       version: parsed.version || 1,
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      requests: Array.isArray(parsed.requests) ? parsed.requests : [],
+      // Accounts written before the ladder and the split name fields existed are brought forward on read,
+      // so an older store keeps working instead of producing users with a role nothing recognises.
+      users: (Array.isArray(parsed.users) ? parsed.users : []).map(user => {
+        const names = splitName(user.name || "");
+        return {
+          ...user,
+          role: normalizeRole(user.role),
+          firstName: user.firstName || names.firstName,
+          lastName: user.lastName || names.lastName,
+          contactEmail: user.contactEmail || user.email,
+        };
+      }),
+      requests: (Array.isArray(parsed.requests) ? parsed.requests : []).map(request => ({
+        ...request,
+        // Records written before attachments existed have no array; readers should never have to guard.
+        attachments: Array.isArray(request.attachments) ? request.attachments : [],
+      })),
+      notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       revoked: Array.isArray(parsed.revoked) ? parsed.revoked : [],
     };
   } catch (error) {
@@ -242,6 +363,10 @@ const EDITABLE: Status[] = ["Draft", "Returned"];
 
 const now = () => new Date().toISOString();
 
+/** Currency for notification wording. The design system's money() is client code, so this is its twin. */
+const moneyText = (amount: number) =>
+  amount.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+
 function auditEntry(actor: Actor, action: string, detail?: string): StoredAudit {
   return { id: randomUUID(), at: now(), actorId: actor.userId, actorName: actor.name, action, detail };
 }
@@ -255,9 +380,9 @@ function nextPrfNumber(requests: StoredRequest[]): string {
   return `PRF-FY27-${String(highest + 1).padStart(4, "0")}`;
 }
 
-/** A requester sees only their own requests; an approver sees the whole register. */
+/** A requester sees only their own requests; approvers and administrators see the whole register. */
 const visibleTo = (actor: Actor, request: StoredRequest) =>
-  actor.role === "APPROVER" || request.ownerId === actor.userId;
+  isApprover(actor.role) || isAdmin(actor.role) || request.ownerId === actor.userId;
 
 /**
  * Locates a request the actor is allowed to know exists.
@@ -276,6 +401,8 @@ function locate(database: Database, actor: Actor, id: string): StoredRequest {
 
 export type DraftInput = {
   vendor: string;
+  copyName: string;
+  copyEmail: string;
   vendorAddress: string;
   vendorCity: string;
   vendorEmail: string;
@@ -312,6 +439,41 @@ export async function listUsers(): Promise<StoredUser[]> {
   return (await readDatabase()).users;
 }
 
+/** Splits a display name into first and last, keeping everything after the first space as the surname. */
+export function splitName(name: string): { firstName: string; lastName: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return { firstName: parts[0] || "", lastName: parts.slice(1).join(" ") };
+}
+
+/**
+ * Finds or creates the account behind an SSO identity.
+ *
+ * A person the proxy vouches for but the store has never seen is provisioned as a requester. Roles are
+ * granted here, never asserted by a header — otherwise anyone who could set one could promote themselves.
+ */
+export async function provisionFromIdentity(identity: {
+  email: string;
+  name: string;
+  district: string;
+  school: string;
+}): Promise<StoredUser> {
+  const existing = await findUserByEmail(identity.email);
+  if (existing) return existing;
+  const { firstName, lastName } = splitName(identity.name);
+  return upsertUser({
+    id: `sso-${Buffer.from(identity.email).toString("hex").slice(0, 24)}`,
+    email: identity.email,
+    firstName,
+    lastName,
+    name: identity.name,
+    contactEmail: identity.email,
+    role: "REQUESTER",
+    district: identity.district,
+    school: identity.school,
+    passwordHash: "",
+  });
+}
+
 export async function upsertUser(user: StoredUser): Promise<StoredUser> {
   return transaction(database => {
     const index = database.users.findIndex(entry => entry.email.toLowerCase() === user.email.toLowerCase());
@@ -337,6 +499,47 @@ export async function revokeSession(sid: string, expiresAt: number): Promise<voi
 export async function isRevoked(sid: string): Promise<boolean> {
   const database = await readDatabase();
   return database.revoked.some(entry => entry.sid === sid && entry.expiresAt > Date.now());
+}
+
+// ---- notifications ---------------------------------------------------------------------------------
+// Raised inside the same transaction as the change that caused them, so a notification cannot exist for an
+// event that failed to commit — and cannot be missed for one that did.
+//
+// Recipients are resolved from the record, never from whoever happens to be looking. A submission goes to
+// the people who could actually authorise it; an outcome goes to the person who asked and to the colleague
+// they copied in.
+
+const notification = (
+  database: Database,
+  entry: Omit<StoredNotification, "id" | "at" | "read">,
+): void => {
+  database.notifications.push({ ...entry, id: randomUUID(), at: now(), read: false });
+  // Keep the tail bounded; nobody reads a year-old bell item and the file should not grow without limit.
+  if (database.notifications.length > 2000) database.notifications = database.notifications.slice(-2000);
+};
+
+/** Everyone whose position could sign off this amount — the people the request is actually waiting on. */
+const approversFor = (database: Database, amount: number) =>
+  database.users.filter(user => canApprove(user.role, amount));
+
+export async function listNotifications(actor: Actor): Promise<StoredNotification[]> {
+  const database = await readDatabase();
+  const address = actor.email.toLowerCase();
+  return database.notifications
+    .filter(entry => entry.userId === actor.userId || (entry.email || "").toLowerCase() === address)
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 50);
+}
+
+export async function markNotificationsRead(actor: Actor): Promise<void> {
+  await transaction(database => {
+    const address = actor.email.toLowerCase();
+    database.notifications = database.notifications.map(entry =>
+      entry.userId === actor.userId || (entry.email || "").toLowerCase() === address
+        ? { ...entry, read: true }
+        : entry,
+    );
+  });
 }
 
 // ---- requests --------------------------------------------------------------------------------------
@@ -374,6 +577,7 @@ export async function createDraft(actor: Actor, input: DraftInput): Promise<Stor
       requesterSigned: false,
       approverSigned: false,
       documents: [],
+      attachments: [],
       ...shape(input),
     };
     database.requests.push(request);
@@ -437,12 +641,22 @@ export async function submitRequest(actor: Actor, id: string, signature: string)
       actorId: "system",
       actorName: "System",
     });
+
+    for (const approver of approversFor(database, request.amount)) {
+      notification(database, {
+        kind: "submitted",
+        requestId: request.id,
+        userId: approver.id,
+        title: `${request.id} needs your review`,
+        body: `${actor.name} submitted ${moneyText(request.amount)} for ${request.school || request.district}. Routes to ${routeFor(request.amount)}.`,
+      });
+    }
     return request;
   });
 }
 
 export async function decideRequest(actor: Actor, id: string, decision: Decision): Promise<StoredRequest> {
-  if (actor.role !== "APPROVER") throw new ForbiddenError("Only approvers can review purchase requests");
+  if (!isApprover(actor.role)) throw new ForbiddenError("Only approvers can review purchase requests");
   return transaction(database => {
     const request = locate(database, actor, id);
     if (request.ownerId === actor.userId) {
@@ -450,6 +664,14 @@ export async function decideRequest(actor: Actor, id: string, decision: Decision
     }
     const target: Status = decision.action === "approve" ? "Approved" : "Returned";
     assertTransition(request.status, target);
+    // Authority is checked against the amount, not merely against being an approver: a Manager cannot sign
+    // off a $50,000 request just because the queue showed it to them. Sending back is open to any approver —
+    // spotting a problem does not require the authority to have approved it.
+    if (decision.action === "approve" && !canApprove(actor.role, request.amount)) {
+      throw new ForbiddenError(
+        `${ROLE_LABEL[actor.role]} authority covers up to ${approvalLimit(actor.role) === Number.POSITIVE_INFINITY ? "any amount" : `$${approvalLimit(actor.role).toLocaleString()}`}. This request needs ${routeFor(request.amount)} approval.`,
+      );
+    }
     if (decision.action === "approve" && !request.requesterSigned) {
       throw new ConflictError("This PRF has no requester signature and cannot be approved");
     }
@@ -483,7 +705,109 @@ export async function decideRequest(actor: Actor, id: string, decision: Decision
         decision.comment || undefined,
       ),
     );
+
+    const approved = decision.action === "approve";
+    const title = approved ? `${request.id} was approved` : `${request.id} needs changes`;
+    const body = approved
+      ? `${actor.name} approved and signed ${moneyText(request.amount)} for ${request.school || request.district}.`
+      : `${actor.name} sent it back: ${decision.comment}`;
+    notification(database, { kind: approved ? "approved" : "returned", requestId: request.id, userId: request.ownerId, title, body });
+    // The copied-in colleague hears the outcome too. They may have no account, so this one is addressed
+    // to the email itself and is picked up whenever that address signs in.
+    if (request.copyEmail) {
+      notification(database, {
+        kind: approved ? "approved" : "returned",
+        requestId: request.id,
+        email: request.copyEmail,
+        title,
+        body: `${body} You were copied in by ${request.requester}.`,
+      });
+    }
     return request;
+  });
+}
+
+// ---- attachments -----------------------------------------------------------------------------------
+
+/** Attaching is an edit: same owner, same statuses that allow any other change to the record. */
+export async function attachToRequest(actor: Actor, id: string, attachment: StoredAttachment): Promise<StoredRequest> {
+  return transaction(database => {
+    const request = locate(database, actor, id);
+    if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can attach files to this PRF");
+    if (!EDITABLE.includes(request.status)) {
+      throw new ConflictError(`Files cannot be added to a ${request.status} request`);
+    }
+    if (request.attachments.length >= 20) throw new ConflictError("A request can hold at most 20 attachments");
+    request.attachments.push(attachment);
+    request.updatedAt = now();
+    request.audit.push(auditEntry(actor, "Attached a document", attachment.name));
+    return request;
+  });
+}
+
+export async function detachFromRequest(actor: Actor, id: string, attachmentId: string): Promise<StoredAttachment> {
+  return transaction(database => {
+    const request = locate(database, actor, id);
+    if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can remove files from this PRF");
+    if (!EDITABLE.includes(request.status)) {
+      throw new ConflictError(`Files cannot be removed from a ${request.status} request`);
+    }
+    const attachment = request.attachments.find(entry => entry.id === attachmentId);
+    if (!attachment) throw new NotFoundError("That file could not be found");
+    request.attachments = request.attachments.filter(entry => entry.id !== attachmentId);
+    request.updatedAt = now();
+    request.audit.push(auditEntry(actor, "Removed a document", attachment.name));
+    return attachment;
+  });
+}
+
+/**
+ * Resolves a file for download.
+ *
+ * Reading goes through locate(), so the same rule that decides who can see a PRF decides who can open its
+ * receipts: the requester who wrote it, anyone with signing authority, and Finance or an administrator.
+ * Everyone else gets Not Found, including for a file whose id they somehow know.
+ */
+export async function getAttachment(actor: Actor, id: string, attachmentId: string): Promise<StoredAttachment> {
+  const database = await readDatabase();
+  const request = locate(database, actor, id);
+  const attachment = request.attachments.find(entry => entry.id === attachmentId);
+  if (!attachment) throw new NotFoundError("That file could not be found");
+  return attachment;
+}
+
+// ---- profiles and role assignment --------------------------------------------------------------------
+
+export type ProfileInput = { firstName: string; lastName: string; contactEmail: string };
+
+/** Anyone may edit their own name and contact address. Nobody may edit their own position this way. */
+export async function updateProfile(actor: Actor, input: ProfileInput): Promise<StoredUser> {
+  return transaction(database => {
+    const user = database.users.find(entry => entry.id === actor.userId);
+    if (!user) throw new NotFoundError("That account could not be found");
+    user.firstName = input.firstName;
+    user.lastName = input.lastName;
+    user.name = `${input.firstName} ${input.lastName}`.trim() || user.email;
+    user.contactEmail = input.contactEmail || user.email;
+    return user;
+  });
+}
+
+/**
+ * Reassigns someone's position.
+ *
+ * Restricted to Finance and administrators, and refused for the caller's own account. Self-assignment is
+ * how a role system quietly stops meaning anything: the check above would otherwise let an administrator
+ * grant themselves CEO signing authority without anyone else being involved.
+ */
+export async function assignRole(actor: Actor, userId: string, role: Role): Promise<StoredUser> {
+  if (!isAdmin(actor.role)) throw new ForbiddenError("Only Finance and administrators can change positions");
+  if (userId === actor.userId) throw new ForbiddenError("You cannot change your own position");
+  return transaction(database => {
+    const user = database.users.find(entry => entry.id === userId);
+    if (!user) throw new NotFoundError("That account could not be found");
+    user.role = role;
+    return user;
   });
 }
 
@@ -501,6 +825,8 @@ const total = (lines: StoredLine[]) =>
 function shape(input: DraftInput) {
   return {
     vendor: input.vendor,
+    copyName: input.copyName,
+    copyEmail: input.copyEmail,
     vendorAddress: input.vendorAddress,
     vendorCity: input.vendorCity,
     vendorEmail: input.vendorEmail,

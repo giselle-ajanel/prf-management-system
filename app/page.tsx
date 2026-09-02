@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActionRow, AppFooter, AppHeader, ConfirmDialog, Finance, Hero, LoginScreen, MonthFilter, NotificationBell, PageHead,
+  ActionRow, AppFooter, AppHeader, ConfirmDialog, Finance, Hero, LoginScreen, MonthFilter, NotificationBell, PageHead, ProfileSettings,
   QueueItem, RequestForm, RequestModal, RequestTrail, ReviewPanel, SessionDialog, Summary, SupervisorReview,
   TipPanel, SCHOOL_TAB,
   amountOf, markAllRead, money, monthLabel, notify, siteKeyOf, vague,
@@ -10,9 +10,11 @@ import {
   type Request, type View,
 } from "@ds";
 import {
-  SessionEndedError, createRequest, decideRequest as decidePrf, deleteRequest as deletePrf, fetchRequests,
-  getSession, login, logout, submitRequest as submitPrf, toViewRequest, updateRequest,
-  type SessionInfo,
+  ROLE_LABELS, SessionEndedError, assignRole, createRequest, decideRequest as decidePrf,
+  deleteRequest as deletePrf, fetchNotifications, fetchRequests, getProfile, getSession, isAdmin,
+  listUsers, login, logout, markNotificationsRead as markRead, removeAttachment, saveProfile, seesRegister,
+  submitRequest as submitPrf, toViewRequest, updateRequest, uploadAttachment,
+  type DirectoryUser, type Profile, type Role, type ServerNotification, type SessionInfo,
 } from "@/lib/prf-client";
 
 // The Hub's single page. State, persistence and permissions all funnel through here; every piece of markup
@@ -25,7 +27,7 @@ import {
 // are two different mechanisms, and only the second one matters.
 
 const blankLine=():PrfLineDraft=>({description:"",expenseType:"Program Supplies",club:"",splitSite:"",amount:""});
-const freshForm=(requestorName=""):PrfFormState=>({vendor:"",vendorAddress:"",vendorCity:"",vendorEmail:"",description:"",amount:"",district:"Woodcraft",school:"",siteKey:"",siteName:"",siteCode:"",fundingCode:"",region:"",expenseType:"Program Supplies",paymentType:"",lineItems:Array.from({length:10},blankLine),requestorName,requestorSignature:"",signatureMode:"type",requestorDate:new Date().toISOString().slice(0,10),supervisorName:"",supervisorSignature:"",supervisorDate:"",manualSite:"",manualFunding:"",justification:"",customSite:false,customFunding:false});
+const freshForm=(requestorName=""):PrfFormState=>({vendor:"",vendorAddress:"",vendorCity:"",vendorEmail:"",copyName:"",copyEmail:"",description:"",amount:"",district:"Woodcraft",school:"",siteKey:"",siteName:"",siteCode:"",fundingCode:"",region:"",expenseType:"Program Supplies",paymentType:"",lineItems:Array.from({length:10},blankLine),requestorName,requestorSignature:"",signatureMode:"type",requestorDate:new Date().toISOString().slice(0,10),supervisorName:"",supervisorSignature:"",supervisorDate:"",manualSite:"",manualFunding:"",justification:"",customSite:false,customFunding:false});
 
 const districts: Record<string,string[]> = {
   "Woodcraft":["Finance","Marketing","Development","Operations"],
@@ -50,7 +52,7 @@ const draftDb=()=>new Promise<IDBDatabase>((resolve,reject)=>{if(typeof indexedD
 const saveIndexedDraft=async(payload:unknown,owner:string)=>{try{const db=await draftDb();const tx=db.transaction("drafts","readwrite");tx.objectStore("drafts").put({id:"active-prf",owner,payload,updatedAt:new Date().toISOString()});await new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)})}catch{}};
 const deleteIndexedDraft=async()=>{try{const db=await draftDb();const tx=db.transaction("drafts","readwrite");tx.objectStore("drafts").delete("active-prf");await new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)})}catch{}};
 
-const PORTAL_LABEL = { REQUESTER: "Requester", APPROVER: "Approver / Finance" } as const;
+// Position labels come from the client's copy of the ladder in lib/prf-client.ts.
 
 const initialsOf = (name: string) =>
   name.split(" ").filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase() || "").join("") || "PRF";
@@ -70,6 +72,8 @@ const draftPayload = (form: PrfFormState) => ({
   vendorAddress: form.vendorAddress,
   vendorCity: form.vendorCity,
   vendorEmail: form.vendorEmail,
+  copyName: form.copyName,
+  copyEmail: form.copyEmail,
   description: form.description,
   justification: form.justification,
   district: form.district,
@@ -95,17 +99,35 @@ const draftPayload = (form: PrfFormState) => ({
 export default function PurchaseRequestHub() {
   const [session,setSession] = useState<SessionInfo|null>(null);
   const [authBusy,setAuthBusy] = useState(false); const [authError,setAuthError] = useState(""); const [authNotice,setAuthNotice] = useState("");
-  const user = session?.user; const isApprover = user?.role === "APPROVER";
+  const user = session?.user;
+  const role = user?.role || "REQUESTER";
+  // "Sees the register" is the useful distinction for the interface: approvers and Finance both do.
+  const isApprover = seesRegister(role);
 
   const [view,setView] = useState<View>("overview"); const [requests,setRequests] = useState<Request[]>([]);
   const [selected,setSelected] = useState<Request|null>(null); const [creating,setCreating] = useState(false); const [auditOpen,setAuditOpen] = useState(false);
   const [notice,setNotice] = useState(""); const [noticeTone,setNoticeTone] = useState<"success"|"problem">("problem");
   // A draft awaiting confirmation before it is deleted. Holding the request itself lets the prompt name it.
   const [pendingDelete,setPendingDelete] = useState<Request|null>(null);
+  const [profile,setProfile] = useState<Profile|null>(null);
+  const [directory,setDirectory] = useState<DirectoryUser[]|null>(null);
+  const [profileNotice,setProfileNotice] = useState(""); const [profileError,setProfileError] = useState("");
+  const [attachmentError,setAttachmentError] = useState(""); const [attachmentBusy,setAttachmentBusy] = useState(false);
+  const [attachments,setAttachments] = useState<{id:string;name:string;size:number;type:string}[]>([]);
   const [editingId,setEditingId] = useState<string|null>(null); const [accounting,setAccounting] = useState<AccountingCode[]>([]); const [accountingStatus,setAccountingStatus] = useState("Loading every active FY27 site…"); const [lastSaved,setLastSaved] = useState("");
   const [monthFilter,setMonthFilter] = useState("");
+  // Notifications are raised by the server when a request changes hands, so an approver is told about a
+  // submission made in someone else's browser. The bell renders whatever this account is addressed by.
   const [notifications,setNotifications] = useState<PrfNotification[]>([]);
-  const announce = (kind:Parameters<typeof notify>[0], request:Request, note="") => setNotifications(previous=>[notify(kind,request,note),...previous].slice(0,50));
+  const loadNotifications = async () => {
+    const rows = await fetchNotifications().catch(()=>null);
+    if(!rows) return;
+    setNotifications(rows.map((entry:ServerNotification)=>({
+      id:entry.id, kind:entry.kind, audience:entry.kind==="submitted"?"approver":"requester",
+      recipient:user?.name||"", requestId:entry.requestId, title:entry.title, body:entry.body,
+      at:entry.at, read:entry.read,
+    })));
+  };
   const lastActivity = useRef(Date.now()); const [sessionExpired,setSessionExpired] = useState(false);
   const [filters,setFilters] = useState({query:"",month:"",district:"",school:"",status:"",funding:""});
   const [form,setForm] = useState<PrfFormState>(() => freshForm());
@@ -153,11 +175,12 @@ export default function PurchaseRequestHub() {
   const refresh = async () => {
     const rows = await guard(fetchRequests);
     if(rows) setRequests(rows.map(toViewRequest));
+    await loadNotifications();
   };
 
   const adopt = (info:SessionInfo) => {
     setSession(info); setAuthNotice(""); setAuthError("");
-    if(info.user) { setView(info.user.role==="APPROVER"?"approvals":"overview"); setForm(freshForm(info.user.name)); }
+    if(info.user) { setView(seesRegister(info.user.role)?"approvals":"overview"); setForm(freshForm(info.user.name)); }
   };
 
   useEffect(()=>{ void (async()=>{
@@ -267,7 +290,7 @@ export default function PurchaseRequestHub() {
     const submitted = await guard(()=>submitPrf(saved.id,form.requestorSignature)); if(!submitted) return;
     const row = toViewRequest(submitted);
     setRequests(previous=>previous.map(entry=>entry.id===row.id?row:entry));
-    announce("submitted",row);
+    void loadNotifications();
     safeStorage.remove("prf-active-draft-v1"); safeStorage.remove("prf-active-draft-saved-at");
     setEditingId(null); editingIdRef.current=null; setCreating(false); setNotice("");
   };
@@ -278,10 +301,16 @@ export default function PurchaseRequestHub() {
     setCreating(false); setNotice("");
   };
 
-  const startNew = () => { editingIdRef.current=null; setEditingId(null); setForm(freshForm(user?.name||"")); setAccounting([]); setAccountingStatus("Loading every active FY27 site…"); setLastSaved(""); setNotice(""); safeStorage.remove("prf-active-draft-v1"); safeStorage.remove("prf-active-draft-saved-at"); void deleteIndexedDraft(); setCreating(true) };
+  const startNew = () => { setAttachments([]); setAttachmentError(""); editingIdRef.current=null; setEditingId(null); setForm(freshForm(user?.name||"")); setAccounting([]); setAccountingStatus("Loading every active FY27 site…"); setLastSaved(""); setNotice(""); safeStorage.remove("prf-active-draft-v1"); safeStorage.remove("prf-active-draft-saved-at"); void deleteIndexedDraft(); setCreating(true) };
 
   const resume = (request:Request) => {
     setEditingId(request.id); editingIdRef.current=request.id;
+    setAttachmentError("");
+    // The view model carries only document names; the editor needs their ids to offer a remove control.
+    void fetch(`/api/requests/${encodeURIComponent(request.id)}/attachments`,{credentials:"same-origin"})
+      .then(response=>response.ok?response.json():{attachments:[]})
+      .then(payload=>setAttachments(payload.attachments||[]))
+      .catch(()=>setAttachments([]));
     const stored=safeStorage.get(`prf-editor-${request.id}`);
     if(stored) try { const saved=JSON.parse(stored); setForm({...freshForm(user?.name||""),...saved,siteKey:saved.siteKey||siteKeyOf(saved.siteCode,saved.school),siteName:saved.siteName||saved.school||""}); setCreating(true); return } catch {}
     // No local buffer — rebuild from the stored record. Everything the editor holds is saved except the
@@ -312,6 +341,70 @@ export default function PurchaseRequestHub() {
     if(editingIdRef.current===request.id){ editingIdRef.current=null; setEditingId(null); setCreating(false); setForm(freshForm(user?.name||"")); safeStorage.remove("prf-active-draft-v1"); safeStorage.remove("prf-active-draft-saved-at"); void deleteIndexedDraft() }
   };
 
+  // ---- profile and positions -------------------------------------------------------------------------
+
+  const openProfile = async () => {
+    navigate("profile");
+    setProfileNotice(""); setProfileError("");
+    const loaded = await guard(getProfile);
+    if(loaded) setProfile(loaded);
+    // The directory is an administrator's tool; for anyone else the request would be refused anyway, so
+    // it is never made.
+    if(user&&isAdmin(user.role)){ const rows = await listUsers().catch(()=>null); if(rows) setDirectory(rows) }
+  };
+
+  const submitProfile = async (fields:{firstName:string;lastName:string;contactEmail:string}) => {
+    setProfileNotice(""); setProfileError("");
+    try {
+      const saved = await saveProfile(fields);
+      setProfile(saved);
+      setSession(previous=>previous&&previous.user?{...previous,user:{...previous.user,name:`${saved.firstName} ${saved.lastName}`.trim()}}:previous);
+      setProfileNotice("Profile saved.");
+    } catch(error) {
+      if(error instanceof SessionEndedError){ endLocalSession(error.message); return }
+      setProfileError(error instanceof Error?error.message:"That could not be saved");
+    }
+  };
+
+  const changeRole = async (userId:string, next:string) => {
+    setProfileNotice(""); setProfileError("");
+    try {
+      const updated = await assignRole(userId,next);
+      setDirectory(previous=>previous?previous.map(entry=>entry.id===updated.id?{...entry,role:updated.role}:entry):previous);
+      setProfileNotice(`${updated.name} is now ${ROLE_LABELS[updated.role]}.`);
+    } catch(error) {
+      if(error instanceof SessionEndedError){ endLocalSession(error.message); return }
+      setProfileError(error instanceof Error?error.message:"That position could not be changed");
+    }
+  };
+
+  // ---- attachments -----------------------------------------------------------------------------------
+
+  const attachFiles = async (files:File[]) => {
+    const id = editingIdRef.current; if(!id) return;
+    setAttachmentBusy(true); setAttachmentError("");
+    for(const file of files){
+      try {
+        const updated = await uploadAttachment(id,file);
+        const row = toViewRequest(updated);
+        setRequests(previous=>previous.map(entry=>entry.id===row.id?row:entry));
+        setAttachments(updated.attachments||[]);
+      } catch(error) {
+        if(error instanceof SessionEndedError){ endLocalSession(error.message); break }
+        setAttachmentError(error instanceof Error?error.message:"That file could not be attached");
+      }
+    }
+    setAttachmentBusy(false);
+  };
+
+  const detachFile = async (fileId:string) => {
+    const id = editingIdRef.current; if(!id) return;
+    setAttachmentError("");
+    const done = await guard(()=>removeAttachment(id,fileId)); if(!done) return;
+    setAttachments(previous=>previous.filter(file=>file.id!==fileId));
+    await refresh();
+  };
+
   // ---- approvals -------------------------------------------------------------------------------------
 
   const decide = async (request:Request, action:"approve"|"reject", comment="") => {
@@ -320,7 +413,7 @@ export default function PurchaseRequestHub() {
     const row = toViewRequest(updated);
     setRequests(previous=>previous.map(entry=>entry.id===row.id?row:entry));
     setSelected(null); setAuditOpen(false);
-    announce(action==="approve"?"approved":"returned",row,comment);
+    void loadNotifications();
   };
 
   // ---- derived ---------------------------------------------------------------------------------------
@@ -343,8 +436,8 @@ export default function PurchaseRequestHub() {
   // Navigation is built from the role rather than disabled by it: an area a person can never enter is
   // clutter, not a locked door, and the door itself is on the server.
   const navItems = isApprover
-    ? [{id:"overview",label:"Overview"},{id:"approvals",label:"Approvals"},{id:"finance",label:"Finance"}]
-    : [{id:"overview",label:"Overview"},{id:"requests",label:"My Requests"}];
+    ? [{id:"overview",label:"Overview"},{id:"approvals",label:"Approvals"},{id:"finance",label:"Finance"},{id:"profile",label:"Profile"}]
+    : [{id:"overview",label:"Overview"},{id:"requests",label:"My Requests"},{id:"profile",label:"Profile"}];
   const current:View = navItems.some(item=>item.id===view) ? view : "overview";
   const queue = requests.filter(request=>monthFilter?request.approvedAt?.startsWith(monthFilter):request.status==="Awaiting Approval");
   const reviewing = Boolean(selected&&isApprover&&current==="approvals"&&selected.status==="Awaiting Approval");
@@ -352,10 +445,10 @@ export default function PurchaseRequestHub() {
   return <main>
     <AppHeader
       items={navItems}
-      active={current} onNavigate={id=>navigate(id as View)} onBrandClick={()=>navigate("overview")}
-      initials={initialsOf(user.name)} userName={user.name} userRole={PORTAL_LABEL[user.role]} userOrg={`${user.district}${user.school?` — ${user.school}`:""}`}
+      active={current} onNavigate={id=>{const next=id as View;if(next==="profile")void openProfile();else navigate(next)}} onBrandClick={()=>navigate("overview")}
+      initials={initialsOf(user.name)} userName={user.name} userRole={ROLE_LABELS[user.role]} userOrg={`${user.district}${user.school?` — ${user.school}`:""}`}
       actions={<>
-        <NotificationBell notifications={notifications} onMarkAllRead={()=>setNotifications(markAllRead)} onOpen={id=>{const found=requests.find(entry=>entry.id===id);if(found)setSelected(found)}}/>
+        <NotificationBell notifications={notifications} onMarkAllRead={()=>{setNotifications(markAllRead);void markRead()}} onOpen={id=>{const found=requests.find(entry=>entry.id===id);if(found)setSelected(found)}}/>
         <button type="button" className="signOut" onClick={()=>void signOut()} disabled={authBusy}>Sign out</button>
       </>}
     />
@@ -393,12 +486,24 @@ export default function PurchaseRequestHub() {
       <div className="queueList">{queue.map(request=><QueueItem key={request.id} request={request} onOpen={setSelected}/>)}</div>
     </section>}
 
+    {current==="profile"&&profile&&<ProfileSettings
+      profile={{firstName:profile.firstName,lastName:profile.lastName,email:profile.email,contactEmail:profile.contactEmail}}
+      roleLabel={ROLE_LABELS[profile.role]} onSave={fields=>void submitProfile(fields)}
+      notice={profileNotice} error={profileError}
+      directory={directory?directory.map(entry=>({id:entry.id,name:entry.name,email:entry.email,role:entry.role})):undefined}
+      roleOptions={(Object.keys(ROLE_LABELS) as Role[]).map(value=>({value,label:ROLE_LABELS[value]}))}
+      onAssignRole={(id,next)=>void changeRole(id,next)}
+      currentUserId={directory?.find(entry=>entry.email===profile.email)?.id}
+    />}
+
     {current==="finance"&&isApprover&&<Finance requests={filtered} all={requests} filters={filters} setFilters={setFilters} onOpen={setSelected} districts={districts}/>}
 
     <AppFooter/>
 
     {creating&&!isApprover&&<RequestForm form={form} setForm={setForm} notice={notice} noticeTone={noticeTone} accounting={accounting} accountingStatus={accountingStatus} lastSaved={lastSaved} dirty={dirty} onClose={closeEditor} onSave={()=>void saveNativeDraft()} onProceed={()=>void submitNative()}
-      onDelete={editingId?()=>{const draft=requests.find(request=>request.id===editingId);if(draft)askDelete(draft)}:undefined}/>}
+      onDelete={editingId?()=>{const draft=requests.find(request=>request.id===editingId);if(draft)askDelete(draft)}:undefined}
+      attachments={attachments} onAttach={files=>void attachFiles(files)} onRemoveAttachment={id=>void detachFile(id)}
+      attachmentsEnabled={Boolean(editingId)} attachmentError={attachmentError} attachmentBusy={attachmentBusy}/>}
 
     {selected&&(reviewing
       ? <SupervisorReview request={selected} onClose={()=>setSelected(null)} onApprove={request=>void decide(request,"approve")} onReject={(request,note)=>void decide(request,"reject",note)}/>

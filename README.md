@@ -16,11 +16,20 @@ Open `http://localhost:3000`. The first request seeds three demo accounts with *
 passwords, prints them to the server console, and writes them to `.secure-data/seed-credentials.txt`
 (git-ignored, mode 600). No password is committed to this repository.
 
-| Account | Role |
-| --- | --- |
-| `giselle.ajanel@woodcraftrangers.org` | Requester |
-| `maya.thompson@woodcraftrangers.org` | Requester |
-| `marcus.lee@woodcraftrangers.org` | Approver / Finance |
+| Account | Position | Signs up to |
+| --- | --- | --- |
+| `giselle.ajanel@woodcraftrangers.org` | Requester | — |
+| `maya.thompson@woodcraftrangers.org` | Requester | — |
+| `manager@woodcraftrangers.org` | Manager | $5,000 |
+| `director@woodcraftrangers.org` | Director | $15,000 |
+| `seniordirector@woodcraftrangers.org` | Senior Director | $25,000 |
+| `chief@woodcraftrangers.org` | Chief | $75,000 |
+| `cfo@woodcraftrangers.org` | CFO | any amount |
+| `ceo@woodcraftrangers.org` | CEO | any amount |
+| `finance@woodcraftrangers.org` | Finance | — (administers positions) |
+
+Addresses stay on `woodcraftrangers.org` because `PRF_ALLOWED_EMAIL_DOMAINS` is configured for it — an
+account on another domain would be refused the moment this sits behind SSO.
 
 Delete the store (`.secure-data/prf-store.json`) to start over; the accounts are recreated with new
 passwords.
@@ -41,6 +50,16 @@ Two portals, decided by the account rather than chosen at sign-in:
 - **Requester** — create a PRF, save and resume drafts, sign and submit, and track their own requests.
 - **Approver / Finance** — work the review queue, approve or send back with a required comment, read the
   audit trail, and export the register.
+
+Positions carry their own signing limit, and authority is checked against the amount rather than against
+merely being an approver: a Manager cannot sign off a $50,000 request just because the queue showed it to
+them. Sending a request back is open to any approver — spotting a problem does not require the authority to
+have approved it. Finance and Administrator sit outside the ladder deliberately: they see the whole register
+and assign positions, but cannot authorise spending. Nobody can change their own position, including an
+administrator.
+
+Everyone gets a **Profile** view for their name and contact address. The position is shown there but never
+editable; it is assigned from the directory, which only Finance and administrators can see.
 
 Sessions are signed, http-only cookies. They end after **one hour of inactivity** and after twelve hours
 regardless; both limits are enforced on the server on every request, with the browser's countdown existing
@@ -82,6 +101,21 @@ performing it. Hiding a button changes nothing about what the API will do:
   the requester never signed cannot be approved at all.
 - Creating a PRF is a requester capability. An approver who needs to buy something signs in with their own
   requester account rather than being author and authoriser on one record.
+
+## Attachments and notifications
+
+Supporting documents — receipts, vendor quotes, invoices, W-9s — are attached below the line-item grid by
+drag and drop or browsing. Uploads are limited to PDF, PNG and JPG at 10 MB each, and the check that decides
+is the file's leading bytes, not its name or the type the browser declared: an executable renamed to
+`invoice.pdf` is refused. Files download through a route gated by the same rule that decides who can see the
+PRF — its author, anyone with signing authority, and Finance.
+
+A PRF can name a colleague under **Copy**. They have no rights over the request and are notified of its
+outcome. Notifications are raised on the server inside the same transaction as the change: a submission
+notifies the people whose position could actually authorise that amount, and an approval or send-back
+notifies the requester and whoever was copied in.
+
+Site codes beginning `99` are retired and filtered out at the point every dropdown and lookup reads from.
 
 ## Request hardening
 

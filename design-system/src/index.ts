@@ -132,6 +132,13 @@ export { StatCard, type StatCardProps, type StatTone } from "./components/StatCa
 export { RuleBanner, type RuleBannerProps, type RuleTone } from "./components/RuleBanner";
 export { LoginScreen, type LoginScreenProps, type Credentials } from "./components/LoginScreen";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/ConfirmDialog";
+export { AttachmentZone, ACCEPTED_UPLOADS, fileSize, type AttachmentZoneProps, type AttachmentSummary } from "./components/AttachmentZone";
+export {
+  ProfileSettings,
+  type ProfileSettingsProps,
+  type ProfileFields,
+  type DirectoryEntry,
+} from "./components/ProfileSettings";
 export {
   SupervisorReview,
   DEFAULT_REVIEW_CHECKLIST,

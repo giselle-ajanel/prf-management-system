@@ -37,6 +37,8 @@ await build({
       export * from "./lib/password.ts";
       export * as sanitize from "./lib/sanitize.ts";
       export * as input from "./lib/prf-input.ts";
+      export * as uploads from "./lib/uploads.ts";
+      export { isRetiredSite } from "./lib/accounting.ts";
       export { APPROVAL_TIERS } from "./design-system/src/utils.ts";
       export { DEFAULT_PAYMENT_TYPES, DEFAULT_EXPENSE_TYPES } from "./design-system/src/components/RequestForm.tsx";
     `,
@@ -82,7 +84,9 @@ const rejects = async (work, expected) => {
 // ---- actors ----------------------------------------------------------------------------------------
 const alice = { userId: "u-alice", email: "alice@woodcraftrangers.org", name: "Alice Requester", role: "REQUESTER" };
 const bob = { userId: "u-bob", email: "bob@woodcraftrangers.org", name: "Bob Requester", role: "REQUESTER" };
-const approver = { userId: "u-appr", email: "marcus@woodcraftrangers.org", name: "Marcus Lee", role: "APPROVER" };
+const approver = { userId: "u-appr", email: "director@woodcraftrangers.org", name: "Ana Rivera", role: "DIRECTOR" };
+const manager = { userId: "u-mgr", email: "manager@woodcraftrangers.org", name: "Marcus Lee", role: "MANAGER" };
+const finance = { userId: "u-fin", email: "finance@woodcraftrangers.org", name: "Tomas Reyes", role: "FINANCE" };
 
 const draft = (overrides = {}) => ({
   vendor: "Northstar Learning",
@@ -202,6 +206,89 @@ await check("the server's approval ladder matches the design system's tiers", ()
 await check("payment and expense vocabularies match the design system's", () => {
   assert.deepEqual([...S.input.PAYMENT_TYPES], S.DEFAULT_PAYMENT_TYPES.map(([value]) => value));
   assert.deepEqual([...S.input.EXPENSE_TYPES], [...S.DEFAULT_EXPENSE_TYPES]);
+});
+
+// ---- retired sites and uploaded files ---------------------------------------------------------------
+
+await check("retired 99xx site codes are excluded", () => {
+  assert.equal(S.isRetiredSite("9901"), true);
+  assert.equal(S.isRetiredSite("9920"), true);
+  assert.equal(S.isRetiredSite(" 9955 "), true);
+  assert.equal(S.isRetiredSite("7704"), false);
+  assert.equal(S.isRetiredSite("1199"), false);
+  assert.equal(S.isRetiredSite(""), false);
+});
+
+const bytesFor = (...leading) => {
+  const buffer = Buffer.alloc(64);
+  leading.forEach((byte, index) => { buffer[index] = byte; });
+  return buffer;
+};
+const PDF = bytesFor(0x25, 0x50, 0x44, 0x46);
+const PNG = bytesFor(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+const JPG = bytesFor(0xff, 0xd8, 0xff);
+
+await check("an upload is accepted only when its name and its bytes agree", () => {
+  assert.equal(S.uploads.validateUpload({ name: "quote.pdf", type: "application/pdf", size: 64 }, PDF).type, "application/pdf");
+  assert.equal(S.uploads.validateUpload({ name: "receipt.PNG", type: "image/png", size: 64 }, PNG).type, "image/png");
+  assert.equal(S.uploads.validateUpload({ name: "invoice.jpeg", type: "image/jpeg", size: 64 }, JPG).type, "image/jpeg");
+});
+
+await check("executables and scripts are refused whatever they are called", () => {
+  for (const name of ["payload.exe", "run.sh", "go.bat", "app.js", "page.html", "icon.svg"]) {
+    assert.throws(() => S.uploads.validateUpload({ name, type: "application/pdf", size: 64 }, PDF), /program or script|not a PDF/);
+  }
+});
+
+await check("a file renamed to look like a PDF is refused on its bytes", () => {
+  // The name says PDF and the declared type says PDF; only the leading bytes give it away.
+  const disguised = bytesFor(0x4d, 0x5a);
+  assert.throws(() => S.uploads.validateUpload({ name: "invoice.pdf", type: "application/pdf", size: 64 }, disguised), /not really a PDF/);
+});
+
+await check("uploads are capped at 10 MB and cannot be empty", () => {
+  const huge = Buffer.concat([PDF, Buffer.alloc(11 * 1024 * 1024)]);
+  assert.throws(() => S.uploads.validateUpload({ name: "big.pdf", type: "application/pdf", size: huge.length }, huge), /larger than 10 MB/);
+  assert.throws(() => S.uploads.validateUpload({ name: "empty.pdf", type: "application/pdf", size: 0 }, Buffer.alloc(0)), /is empty/);
+});
+
+await check("a filename cannot escape its directory or carry markup", () => {
+  assert.equal(S.uploads.safeFilename("../../etc/passwd"), "passwd");
+  assert.equal(S.uploads.safeFilename("in<script>.pdf"), "inscript.pdf");
+  assert.equal(S.uploads.safeFilename(""), "attachment");
+});
+
+// ---- the signing ladder ----------------------------------------------------------------------------
+
+await check("each position carries its own signing limit", () => {
+  assert.equal(S.approvalLimit("REQUESTER"), 0);
+  assert.equal(S.approvalLimit("MANAGER"), 5000);
+  assert.equal(S.approvalLimit("DIRECTOR"), 15000);
+  assert.equal(S.approvalLimit("SENIOR_DIRECTOR"), 25000);
+  assert.equal(S.approvalLimit("CHIEF"), 75000);
+  assert.equal(S.approvalLimit("CFO"), Infinity);
+  assert.equal(S.approvalLimit("CEO"), Infinity);
+  // Administering the system is not the same power as authorising money.
+  assert.equal(S.approvalLimit("FINANCE"), 0);
+  assert.equal(S.approvalLimit("ADMIN"), 0);
+  assert.equal(S.isAdmin("FINANCE"), true);
+  assert.equal(S.isApprover("FINANCE"), false);
+});
+
+await check("a position can approve up to its limit and no further", () => {
+  assert.equal(S.canApprove("MANAGER", 4999), true);
+  assert.equal(S.canApprove("MANAGER", 5000), true);
+  assert.equal(S.canApprove("MANAGER", 5001), false);
+  assert.equal(S.canApprove("CHIEF", 75000), true);
+  assert.equal(S.canApprove("CHIEF", 75001), false);
+  assert.equal(S.canApprove("CEO", 9_000_000), true);
+  assert.equal(S.canApprove("REQUESTER", 1), false);
+});
+
+await check("roles stored before the ladder existed resolve to Director", () => {
+  assert.equal(S.normalizeRole("APPROVER"), "DIRECTOR");
+  assert.equal(S.normalizeRole("nonsense"), "REQUESTER");
+  assert.equal(S.normalizeRole("CFO"), "CFO");
 });
 
 // ---- status machine --------------------------------------------------------------------------------
@@ -333,6 +420,61 @@ await check("a second requester's PRF stays invisible to the first", async () =>
   assert.ok(!aliceSees.some(entry => entry.id === bobPrf.id));
   assert.ok((await S.listRequests(approver)).some(entry => entry.id === bobPrf.id));
   await rejects(() => S.getRequest(alice, bobPrf.id), "NotFoundError");
+});
+
+
+await check("an approver cannot sign off more than their position allows", async () => {
+  const big = await S.createDraft(alice, S.input.parseDraft(draft({
+    lineItems: [{ description: "Outdoor education equipment package", quantity: 1, unitPrice: 48900 }],
+  })));
+  const submitted = await S.submitRequest(alice, big.id, "Alice Requester");
+  assert.equal(submitted.amount, 48900);
+
+  // $48,900 needs a Chief. A Manager and a Director may both look at it and neither may approve it.
+  await rejects(() => S.decideRequest(manager, big.id, { action: "approve", comment: "", signature: "Marcus" }), "authority covers up to");
+  await rejects(() => S.decideRequest(approver, big.id, { action: "approve", comment: "", signature: "Ana" }), "Chief approval");
+
+  // Sending it back is open to any approver — spotting a problem needs no signing authority.
+  const returned = await S.decideRequest(manager, big.id, { action: "reject", comment: "Split this across two PRFs.", signature: "" });
+  assert.equal(returned.status, "Returned");
+});
+
+await check("Finance administers but cannot authorise spending", async () => {
+  const prf = await S.createDraft(alice, S.input.parseDraft(draft()));
+  const submitted = await S.submitRequest(alice, prf.id, "Alice Requester");
+  await rejects(() => S.decideRequest(finance, prf.id, { action: "approve", comment: "", signature: "Tomas" }), "Only approvers");
+  // ...but Finance still sees the whole register.
+  assert.ok((await S.listRequests(finance)).some(entry => entry.id === submitted.id));
+});
+
+await check("only Finance or an administrator reassigns a position, and never their own", async () => {
+  await S.upsertUser({ id: finance.userId, email: finance.email, firstName: "Tomas", lastName: "Reyes", name: finance.name, contactEmail: finance.email, role: "FINANCE", district: "W", school: "Finance", passwordHash: "" });
+  await S.upsertUser({ id: alice.userId, email: alice.email, firstName: "Alice", lastName: "Requester", name: alice.name, contactEmail: alice.email, role: "REQUESTER", district: "D4", school: "CHS", passwordHash: "" });
+
+  await rejects(() => S.assignRole(alice, alice.userId, "CEO"), "Only Finance and administrators");
+  await rejects(() => S.assignRole(finance, finance.userId, "CEO"), "cannot change your own position");
+  const promoted = await S.assignRole(finance, alice.userId, "MANAGER");
+  assert.equal(promoted.role, "MANAGER");
+  await S.assignRole(finance, alice.userId, "REQUESTER");
+});
+
+await check("a copied-in colleague is notified of the outcome, and the approver of the submission", async () => {
+  const prf = await S.createDraft(alice, S.input.parseDraft(draft({ copyName: "Site Lead", copyEmail: "lead@woodcraftrangers.org" })));
+  await S.upsertUser({ id: approver.userId, email: approver.email, firstName: "Ana", lastName: "Rivera", name: approver.name, contactEmail: approver.email, role: "DIRECTOR", district: "W", school: "Programs", passwordHash: "" });
+  await S.submitRequest(alice, prf.id, "Alice Requester");
+
+  const waiting = await S.listNotifications(approver);
+  assert.ok(waiting.some(entry => entry.kind === "submitted" && entry.requestId === prf.id));
+
+  await S.decideRequest(approver, prf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.ok((await S.listNotifications(alice)).some(entry => entry.kind === "approved" && entry.requestId === prf.id));
+  const copied = await S.listNotifications({ ...alice, userId: "someone-else", email: "lead@woodcraftrangers.org" });
+  assert.ok(copied.some(entry => entry.kind === "approved" && entry.requestId === prf.id));
+});
+
+await check("a malformed copy address is refused", () => {
+  assert.throws(() => S.input.parseDraft(draft({ copyEmail: "not-an-address" })), /valid email/);
+  assert.equal(S.input.parseDraft(draft({ copyEmail: "" })).copyEmail, "");
 });
 
 // ---- sessions --------------------------------------------------------------------------------------

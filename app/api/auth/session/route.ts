@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { json } from "@/lib/api";
 import { optionalIdentity } from "@/lib/auth";
 import { ensureSeeded } from "@/lib/seed";
-import { findUserByEmail, upsertUser } from "@/lib/store";
+import { provisionFromIdentity } from "@/lib/store";
 import {
   IDLE_TIMEOUT_MS,
   SESSION_COOKIE,
@@ -46,18 +46,7 @@ export async function GET(request: NextRequest) {
     // the session here and the client never sees the login screen.
     const identity = await optionalIdentity();
     if (identity) {
-      const existing = await findUserByEmail(identity.email);
-      const user =
-        existing ||
-        (await upsertUser({
-          id: `sso-${Buffer.from(identity.email).toString("hex").slice(0, 24)}`,
-          email: identity.email,
-          name: identity.name,
-          role: "REQUESTER",
-          district: identity.district,
-          school: identity.school,
-          passwordHash: "",
-        }));
+      const user = await provisionFromIdentity(identity);
       const started = startSession(user);
       const response = json({
         authenticated: true,

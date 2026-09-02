@@ -122,7 +122,7 @@ for (let attempt = 0; attempt < 20 && !Object.keys(credentials).length; attempt 
   try {
     const text = await fs.readFile(credentialsFile, "utf8");
     for (const row of text.split(String.fromCharCode(10))) {
-      const match = /^(REQUESTER|APPROVER)\s+(\S+)\s+(\S+)$/.exec(row.trim());
+      const match = /^([A-Z_]+)\s+(\S+)\s+(\S+)$/.exec(row.trim());
       if (match) (credentials[match[1]] = credentials[match[1]] || []).push({ email: match[2], password: match[3] });
     }
   } catch { await new Promise(resolve => setTimeout(resolve, 500)); }
@@ -130,10 +130,16 @@ for (let attempt = 0; attempt < 20 && !Object.keys(credentials).length; attempt 
 
 const alice = jar(), maya = jar(), approver = jar(), stranger = jar();
 
-await check("the demo accounts were seeded with generated passwords", () => {
+await check("the demo accounts were seeded across the ladder with generated passwords", () => {
   assert.equal(credentials.REQUESTER?.length, 2);
-  assert.equal(credentials.APPROVER?.length, 1);
+  assert.equal(credentials.MANAGER?.length, 1);
+  assert.equal(credentials.DIRECTOR?.length, 1);
+  assert.equal(credentials.CFO?.length, 1);
+  assert.equal(credentials.FINANCE?.length, 1);
   assert.ok(credentials.REQUESTER[0].password.length >= 12);
+  // Position-prefixed addresses, on the domain the SSO allowlist is configured for.
+  assert.match(credentials.MANAGER[0].email, /^manager@woodcraftrangers\.org$/);
+  assert.match(credentials.CFO[0].email, /^cfo@woodcraftrangers\.org$/);
 });
 
 // ---- unauthenticated -------------------------------------------------------------------------------
@@ -194,9 +200,9 @@ await check("signing in issues an http-only session cookie and a CSRF token", as
 
 await check("the other accounts sign in too", async () => {
   assert.equal((await call(maya, "POST", "/api/auth/login", credentials.REQUESTER[1])).status, 200);
-  const response = await call(approver, "POST", "/api/auth/login", credentials.APPROVER[0]);
+  const response = await call(approver, "POST", "/api/auth/login", credentials.DIRECTOR[0]);
   assert.equal(response.status, 200);
-  assert.equal(response.body.user.role, "APPROVER");
+  assert.equal(response.body.user.role, "DIRECTOR");
 });
 
 // ---- CSRF ------------------------------------------------------------------------------------------
@@ -330,7 +336,7 @@ await check("an approver sees the register but cannot create a request", async (
 await check("an unsubmitted PRF cannot be approved", async () => {
   const response = await call(approver, "POST", `/api/requests/${alicePrf}/decision`, {
     action: "approve",
-    signature: "Marcus Lee",
+    signature: "Ana Rivera",
   });
   assert.equal(response.status, 409);
 });
@@ -357,7 +363,7 @@ await check("approving records the signature, the approver and the timestamp", a
   const response = await call(approver, "POST", `/api/requests/${alicePrf}/decision`, {
     action: "approve",
     comment: "Coding checks out.",
-    signature: "Marcus Lee",
+    signature: "Ana Rivera",
   });
   assert.equal(response.status, 200);
   const record = response.body.request;
@@ -366,7 +372,7 @@ await check("approving records the signature, the approver and the timestamp", a
   assert.ok(record.approvedAt);
   const last = record.audit.at(-1);
   assert.match(last.action, /Approved and electronically signed/);
-  assert.equal(last.actorName, "Marcus Lee");
+  assert.equal(last.actorName, "Ana Rivera");
 });
 
 await check("an approved PRF is terminal", async () => {
@@ -396,6 +402,28 @@ await check("the export is served to an approver as a CSV attachment", async () 
   const text = await response.text();
   assert.match(text, /PRF #/);
   assert.match(text, new RegExp(alicePrf));
+});
+
+
+await check("a requester cannot promote themselves through the API", async () => {
+  // The directory is administrator-only...
+  assert.equal((await call(alice, "GET", "/api/users")).status, 403);
+  assert.equal((await call(alice, "PUT", "/api/users", { userId: "anything", role: "CEO" })).status, 403);
+  // ...and the profile endpoint simply never reads a role, so sending one changes nothing.
+  const saved = await call(alice, "PUT", "/api/profile", {
+    firstName: "Giselle", lastName: "Ajanel", contactEmail: "giselle.ajanel@woodcraftrangers.org", role: "CEO",
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.profile.role, "REQUESTER");
+  assert.equal((await call(alice, "GET", "/api/auth/session")).body.user.role, "REQUESTER");
+});
+
+await check("an approver is notified of a submission, and the requester of the outcome", async () => {
+  const waiting = await call(approver, "GET", "/api/notifications");
+  assert.equal(waiting.status, 200);
+  assert.ok(waiting.body.notifications.some(entry => entry.kind === "submitted" && entry.requestId === alicePrf));
+  const outcome = await call(alice, "GET", "/api/notifications");
+  assert.ok(outcome.body.notifications.some(entry => entry.kind === "approved" && entry.requestId === alicePrf));
 });
 
 // ---- sign-out --------------------------------------------------------------------------------------
