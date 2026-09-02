@@ -5,6 +5,19 @@ portals, server-side role enforcement, and an append-only audit trail. The domai
 PostgreSQL/Prisma schema; the running prototype persists through a file-backed store behind the same
 repository interface.
 
+## Open it without a terminal
+
+**Shared link — nothing to install:** https://giselle-ajanel.github.io/prf-management-system/
+
+That is the offline demo: the real interface and the real rules running entirely in the visitor's browser,
+with invented data that never leaves their device. Sign in from the "Pick a role" panel on the login page.
+
+**On your own computer:** double-click `Launch_Purchase_Request_Hub.command` (macOS) or
+`Launch_Purchase_Request_Hub.bat` (Windows), or open `share/PRF-Hub.html` for the demo with no setup at all.
+
+`HOW_TO_OPEN.md` is the guide written for people who do not work in a terminal; `DEPLOYING.md` covers
+hosting the real, server-enforced application.
+
 ## Run locally
 
 ```bash

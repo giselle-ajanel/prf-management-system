@@ -67,6 +67,12 @@ const cases = [
   // The sign-in screen: the only surface an unauthenticated visitor reaches, in each of its three states.
   ["LoginScreen.blank", () => createElement(ds.LoginScreen, { onSubmit: noop })],
   ["LoginScreen.error", () => createElement(ds.LoginScreen, { onSubmit: noop, error: "That email and password combination was not recognised", notice: "Your session ended after an hour of inactivity. Please sign in again." })],
+  // The demo cheat sheet a development build offers; a real deployment passes none and it disappears.
+  ["LoginScreen.demo-accounts", () => createElement(ds.LoginScreen, { onSubmit: noop, demoAccounts: [
+    { label: "Requester", email: "requester@woodcraft.demo", password: "demo" },
+    { label: "Director (Approver)", email: "director@woodcraft.demo", password: "demo" },
+    { label: "Auditor (View Only)", email: "auditor@woodcraft.demo", password: "demo" },
+  ] })],
   ["LoginScreen.sso", () => createElement(ds.LoginScreen, { onSubmit: noop, passwordLoginEnabled: false })],
   // Supporting documents, in each of the three states the zone can be in.
   ["AttachmentZone.empty", () => createElement(ds.AttachmentZone, { attachments: [], onAdd: noop, onRemove: noop })],
