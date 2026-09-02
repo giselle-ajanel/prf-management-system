@@ -59,3 +59,9 @@
   .copyBlock label{grid-template-columns:1fr}
   .attachmentList li{grid-template-columns:1fr auto}
 }
+
+/* Two-gate lifecycle pills. The old single-gate names are kept as aliases so a stored record read forward
+   from the previous model still colours correctly while it is being migrated. */
+.status-pending-supervisor-approval{background:#fdf1d8;color:#7a5a12}
+.status-pending-finance-review{background:#e4eef1;color:#2f5b68}
+.status-needs-revision{background:#fbe2dc;color:#8f3a20}

@@ -3,7 +3,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import fs from "node:fs";
 import path from "node:path";
 import type { NextResponse } from "next/server";
-import { ROLES, isRevoked, revokeSession, type Role } from "./store";
+import { ROLES, isRevoked, revokeSession, type Role, type Tier } from "./store";
 
 // Session tokens.
 //
@@ -28,6 +28,8 @@ export type Session = {
   email: string;
   name: string;
   role: Role;
+  /** Signing band, for an Approver. Carried on the session so a decision needs no extra lookup. */
+  tier?: Tier;
   district: string;
   school: string;
   issuedAt: number;
@@ -118,6 +120,7 @@ export function startSession(user: {
   email: string;
   name: string;
   role: Role;
+  tier?: Tier;
   district: string;
   school: string;
 }): NewSession {
@@ -128,6 +131,7 @@ export function startSession(user: {
     email: user.email,
     name: user.name,
     role: user.role,
+    tier: user.tier,
     district: user.district,
     school: user.school,
     issuedAt: stamp,

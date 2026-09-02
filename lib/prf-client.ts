@@ -11,38 +11,47 @@ import type { Approval, AuditEvent, LineItem, Request, Status } from "@ds";
 // The types below mirror what the routes return rather than importing the server's own types: lib/store.ts
 // is server-only, and a shared type would tempt someone to import the module behind it into the bundle.
 
-export type Role =
-  | "REQUESTER" | "MANAGER" | "DIRECTOR" | "SENIOR_DIRECTOR" | "CHIEF" | "CFO" | "CEO" | "FINANCE" | "ADMIN";
+export type Role = "REQUESTER" | "APPROVER" | "FINANCE_REVIEWER" | "FINANCE_ADMIN" | "VIEW_ONLY";
+export type Tier = "MANAGER" | "DIRECTOR" | "SENIOR_DIRECTOR" | "CHIEF" | "CFO" | "CEO";
 
-/** Mirrors the server's ladder so the interface can label a position and hide what it cannot use. */
+/** Mirrors the server's taxonomy so the interface can label a role and hide what it cannot use. */
 export const ROLE_LABELS: Record<Role, string> = {
   REQUESTER: "Requester",
+  APPROVER: "Approver",
+  FINANCE_REVIEWER: "Finance Reviewer",
+  FINANCE_ADMIN: "Finance Administrator",
+  VIEW_ONLY: "View Only",
+};
+
+export const TIER_LABELS: Record<Tier, string> = {
   MANAGER: "Manager",
   DIRECTOR: "Director",
   SENIOR_DIRECTOR: "Senior Director",
   CHIEF: "Chief",
   CFO: "CFO",
   CEO: "CEO",
-  FINANCE: "Finance",
-  ADMIN: "Administrator",
 };
 
-const APPROVAL_LIMITS: Record<Role, number> = {
-  REQUESTER: 0, MANAGER: 5000, DIRECTOR: 15000, SENIOR_DIRECTOR: 25000, CHIEF: 75000,
-  CFO: Infinity, CEO: Infinity, FINANCE: 0, ADMIN: 0,
+export const TIER_LIMITS: Record<Tier, number> = {
+  MANAGER: 5000, DIRECTOR: 15000, SENIOR_DIRECTOR: 25000, CHIEF: 75000,
+  CFO: Infinity, CEO: Infinity,
 };
 
-export const approvalLimit = (role: Role) => APPROVAL_LIMITS[role] ?? 0;
-export const isApprover = (role: Role) => approvalLimit(role) > 0;
-export const isAdmin = (role: Role) => role === "FINANCE" || role === "ADMIN";
-/** Everyone entitled to the whole register rather than only their own requests. */
-export const seesRegister = (role: Role) => isApprover(role) || isAdmin(role);
-export const canApprove = (role: Role, amount: number) => isApprover(role) && amount > 0 && amount <= approvalLimit(role);
+export const canRequest = (role: Role) => role !== "VIEW_ONLY";
+export const isApprover = (role: Role) => role === "APPROVER";
+export const isFinance = (role: Role) => role === "FINANCE_REVIEWER" || role === "FINANCE_ADMIN";
+export const isAdmin = (role: Role) => role === "FINANCE_ADMIN";
+export const seesRegister = (role: Role) => role !== "REQUESTER";
+
+/** How a role's name reads next to a person's: "Jane Doe — Director" for an approver with a tier. */
+export const positionLabel = (role: Role, tier?: Tier) =>
+  role === "APPROVER" && tier ? TIER_LABELS[tier] : ROLE_LABELS[role];
 
 export type SessionUser = {
   name: string;
   email: string;
   role: Role;
+  tier?: Tier;
   district: string;
   school: string;
 };
@@ -90,6 +99,11 @@ export type WireRequest = {
   requesterSigned?: boolean;
   approverSigned?: boolean;
   approverName?: string;
+  financeSigned?: boolean;
+  financeName?: string;
+  completedAt?: string;
+  requiredTier?: Tier;
+  returnedStage?: "supervisor" | "finance";
   reviewNote?: string;
 };
 
@@ -188,6 +202,14 @@ export const submitRequest = (id: string, signature: string) =>
     body: JSON.stringify({ signature }),
   }).then(p => p.request);
 
+/** Gate 2: Finance clears for payment or returns with a compliance note. */
+export const financeReview = (id: string, action: "approve" | "reject", comment: string, signature = "") =>
+  send<{ request: WireRequest }>(`/api/requests/${encodeURIComponent(id)}/finance-review`, {
+    method: "POST",
+    body: JSON.stringify({ action, comment, signature }),
+  }).then(p => p.request);
+
+/** Gate 1: the supervisor signs, which sends the request on to Finance rather than finishing it. */
 export const decideRequest = (id: string, action: "approve" | "reject", comment: string, signature = "") =>
   send<{ request: WireRequest }>(`/api/requests/${encodeURIComponent(id)}/decision`, {
     method: "POST",
@@ -198,7 +220,7 @@ export const decideRequest = (id: string, action: "approve" | "reject", comment:
 
 export type Profile = {
   firstName: string; lastName: string; email: string; contactEmail: string;
-  role: Role; district?: string; school?: string;
+  role: Role; tier?: Tier; district?: string; school?: string;
 };
 
 export const getProfile = () => send<{ profile: Profile }>("/api/profile").then(p => p.profile);
@@ -206,7 +228,7 @@ export const getProfile = () => send<{ profile: Profile }>("/api/profile").then(
 export const saveProfile = (fields: { firstName: string; lastName: string; contactEmail: string }) =>
   send<{ profile: Profile }>("/api/profile", { method: "PUT", body: JSON.stringify(fields) }).then(p => p.profile);
 
-export type DirectoryUser = { id: string; name: string; email: string; contactEmail: string; role: Role };
+export type DirectoryUser = { id: string; name: string; email: string; contactEmail: string; role: Role; tier?: Tier };
 
 export const listUsers = () => send<{ users: DirectoryUser[] }>("/api/users").then(p => p.users);
 
@@ -305,5 +327,7 @@ export function toViewRequest(wire: WireRequest): Request {
     requesterSigned: wire.requesterSigned,
     approverSigned: wire.approverSigned,
     approverName: wire.approverName,
+    financeName: wire.financeName,
+    completedAt: wire.completedAt,
   };
 }

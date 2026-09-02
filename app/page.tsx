@@ -7,12 +7,13 @@ import {
   TipPanel, SCHOOL_TAB,
   amountOf, markAllRead, money, monthLabel, notify, siteKeyOf, vague,
   type AccountingCode, type Credentials, type PrfFormState, type PrfLineDraft, type PrfNotification,
-  type Request, type View,
+  type Request, type Status, type View,
 } from "@ds";
 import {
-  ROLE_LABELS, SessionEndedError, assignRole, createRequest, decideRequest as decidePrf,
-  deleteRequest as deletePrf, fetchNotifications, fetchRequests, getProfile, getSession, isAdmin,
-  listUsers, login, logout, markNotificationsRead as markRead, removeAttachment, saveProfile, seesRegister,
+  ROLE_LABELS, SessionEndedError, assignRole, canRequest, createRequest, decideRequest as decidePrf,
+  deleteRequest as deletePrf, fetchNotifications, fetchRequests, financeReview, getProfile, getSession,
+  isAdmin, isApprover as roleApproves, isFinance, listUsers, login, logout,
+  markNotificationsRead as markRead, positionLabel, removeAttachment, saveProfile, seesRegister,
   submitRequest as submitPrf, toViewRequest, updateRequest, uploadAttachment,
   type DirectoryUser, type Profile, type Role, type ServerNotification, type SessionInfo,
 } from "@/lib/prf-client";
@@ -103,6 +104,8 @@ export default function PurchaseRequestHub() {
   const role = user?.role || "REQUESTER";
   // "Sees the register" is the useful distinction for the interface: approvers and Finance both do.
   const isApprover = seesRegister(role);
+  const financeRole = isFinance(role);
+  const readOnly = role === "VIEW_ONLY";
 
   const [view,setView] = useState<View>("overview"); const [requests,setRequests] = useState<Request[]>([]);
   const [selected,setSelected] = useState<Request|null>(null); const [creating,setCreating] = useState(false); const [auditOpen,setAuditOpen] = useState(false);
@@ -409,7 +412,11 @@ export default function PurchaseRequestHub() {
   // ---- approvals -------------------------------------------------------------------------------------
 
   const decide = async (request:Request, action:"approve"|"reject", comment="") => {
-    const updated = await guard(()=>decidePrf(request.id,action,comment,action==="approve"?(user?.name||""):""));
+    const signature = action==="approve"?(user?.name||""):"";
+    const call = isFinance(role)
+      ? () => financeReview(request.id,action,comment,signature)
+      : () => decidePrf(request.id,action,comment,signature);
+    const updated = await guard(call);
     if(!updated) return;
     const row = toViewRequest(updated);
     setRequests(previous=>previous.map(entry=>entry.id===row.id?row:entry));
@@ -440,14 +447,22 @@ export default function PurchaseRequestHub() {
     ? [{id:"overview",label:"Overview"},{id:"approvals",label:"Approvals"},{id:"finance",label:"Finance"},{id:"profile",label:"Profile"}]
     : [{id:"overview",label:"Overview"},{id:"requests",label:"My Requests"},{id:"profile",label:"Profile"}];
   const current:View = navItems.some(item=>item.id===view) ? view : "overview";
-  const queue = requests.filter(request=>monthFilter?request.approvedAt?.startsWith(monthFilter):request.status==="Awaiting Approval");
-  const reviewing = Boolean(selected&&isApprover&&current==="approvals"&&selected.status==="Awaiting Approval");
+  // Each role's queue is the stage it can actually act on. Finance never sees gate 1, and an approver's
+  // list ends where their signature does — the request moves on to Finance, not back to them.
+  const gate:"supervisor"|"finance" = financeRole ? "finance" : "supervisor";
+  const queueStatuses:Status[] = financeRole ? ["Pending Finance Review","Approved"] : ["Pending Supervisor Approval"];
+  const queue = requests.filter(request=>monthFilter
+    ? request.completedAt?.startsWith(monthFilter)||request.approvedAt?.startsWith(monthFilter)
+    : queueStatuses.includes(request.status));
+  // Action buttons render only where a decision is actually available at this gate.
+  const actionable:Status = financeRole ? "Pending Finance Review" : "Pending Supervisor Approval";
+  const reviewing = Boolean(selected&&current==="approvals"&&selected.status===actionable&&(financeRole?isFinance(role):roleApproves(role)));
 
   return <main>
     <AppHeader
       items={navItems}
       active={current} onNavigate={id=>{const next=id as View;if(next==="profile")void openProfile();else navigate(next)}} onBrandClick={()=>navigate("overview")}
-      initials={initialsOf(user.name)} userName={user.name} userRole={ROLE_LABELS[user.role]} userOrg={`${user.district}${user.school?` — ${user.school}`:""}`}
+      initials={initialsOf(user.name)} userName={user.name} userRole={positionLabel(user.role,user.tier)} userOrg={`${user.district}${user.school?` — ${user.school}`:""}`}
       actions={<>
         <NotificationBell notifications={notifications} onMarkAllRead={()=>{setNotifications(markAllRead);void markRead()}} onOpen={id=>{const found=requests.find(entry=>entry.id===id);if(found)setSelected(found)}}/>
         <button type="button" className="signOut" onClick={()=>void signOut()} disabled={authBusy}>Sign out</button>
@@ -501,13 +516,13 @@ export default function PurchaseRequestHub() {
 
     <AppFooter/>
 
-    {creating&&!isApprover&&<RequestForm form={form} setForm={setForm} notice={notice} noticeTone={noticeTone} accounting={accounting} accountingStatus={accountingStatus} lastSaved={lastSaved} dirty={dirty} onClose={closeEditor} onSave={()=>void saveNativeDraft()} onProceed={()=>void submitNative()}
+    {creating&&canRequest(role)&&<RequestForm form={form} setForm={setForm} notice={notice} noticeTone={noticeTone} accounting={accounting} accountingStatus={accountingStatus} lastSaved={lastSaved} dirty={dirty} onClose={closeEditor} onSave={()=>void saveNativeDraft()} onProceed={()=>void submitNative()}
       onDelete={editingId?()=>{const draft=requests.find(request=>request.id===editingId);if(draft)askDelete(draft)}:undefined}
       attachments={attachments} onAttach={files=>void attachFiles(files)} onRemoveAttachment={id=>void detachFile(id)}
       attachmentsEnabled={Boolean(editingId)} attachmentError={attachmentError} attachmentBusy={attachmentBusy}/>}
 
     {selected&&(reviewing
-      ? <SupervisorReview request={selected} onClose={()=>setSelected(null)} onApprove={request=>void decide(request,"approve")} onReject={(request,note)=>void decide(request,"reject",note)}/>
+      ? <SupervisorReview gate={gate} request={selected} onClose={()=>setSelected(null)} onApprove={request=>void decide(request,"approve")} onReject={(request,note)=>void decide(request,"reject",note)}/>
       : <RequestModal request={selected} onClose={()=>{setSelected(null);setAuditOpen(false)}} auditOpen={auditOpen} setAuditOpen={setAuditOpen} canApprove={false} onAction={()=>undefined}/>)}
     {selected&&isApprover&&<button className="financeDownload" onClick={()=>downloadFormattedPrfPdf(selected)}>Download PRF PDF ↓</button>}
 

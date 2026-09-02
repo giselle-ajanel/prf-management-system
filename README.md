@@ -16,17 +16,19 @@ Open `http://localhost:3000`. The first request seeds three demo accounts with *
 passwords, prints them to the server console, and writes them to `.secure-data/seed-credentials.txt`
 (git-ignored, mode 600). No password is committed to this repository.
 
-| Account | Position | Signs up to |
+| Account | Role | Signs up to |
 | --- | --- | --- |
 | `giselle.ajanel@woodcraftrangers.org` | Requester | — |
 | `maya.thompson@woodcraftrangers.org` | Requester | — |
-| `manager@woodcraftrangers.org` | Manager | $5,000 |
-| `director@woodcraftrangers.org` | Director | $15,000 |
-| `seniordirector@woodcraftrangers.org` | Senior Director | $25,000 |
-| `chief@woodcraftrangers.org` | Chief | $75,000 |
-| `cfo@woodcraftrangers.org` | CFO | any amount |
-| `ceo@woodcraftrangers.org` | CEO | any amount |
-| `finance@woodcraftrangers.org` | Finance | — (administers positions) |
+| `manager@woodcraftrangers.org` | Approver · Manager | $5,000 |
+| `director@woodcraftrangers.org` | Approver · Director | $15,000 |
+| `seniordirector@woodcraftrangers.org` | Approver · Senior Director | $25,000 |
+| `chief@woodcraftrangers.org` | Approver · Chief | $75,000 |
+| `cfo@woodcraftrangers.org` | Approver · CFO | any amount |
+| `ceo@woodcraftrangers.org` | Approver · CEO | any amount |
+| `finance@woodcraftrangers.org` | Finance Reviewer | — (gate 2) |
+| `financeadmin@woodcraftrangers.org` | Finance Administrator | — (administers) |
+| `viewonly@woodcraftrangers.org` | View Only | — (read-only) |
 
 Addresses stay on `woodcraftrangers.org` because `PRF_ALLOWED_EMAIL_DOMAINS` is configured for it — an
 account on another domain would be refused the moment this sits behind SSO.
@@ -45,13 +47,17 @@ npm run test:http     # the same rules over HTTP, against a dev server on a thro
 
 ## Authentication
 
-Two portals, decided by the account rather than chosen at sign-in:
+Five roles, decided by the account rather than chosen at sign-in. Capabilities are cumulative — an
+Approver and a Finance Reviewer are both requesters who can do more:
 
-- **Requester** — create a PRF, save and resume drafts, sign and submit, and track their own requests.
-- **Approver / Finance** — work the review queue, approve or send back with a required comment, read the
-  audit trail, and export the register.
+- **Requester** — create a PRF, attach documents, save and resume drafts, sign and submit, track their own.
+- **Approver** — all of that, plus gate 1: review, comment, return, or sign requests within their tier.
+- **Finance Reviewer** — all Requester abilities, plus gate 2: audit coding, funding, receipts and policy
+  on requests an approver has already signed.
+- **Finance Administrator** — the full submitted register, exports, audit reporting, role assignment.
+- **View Only** — read-only visibility across the organisation. Cannot submit, edit, approve or reject.
 
-Positions carry their own signing limit, and authority is checked against the amount rather than against
+Approvers carry their own signing limit, and authority is checked against the amount rather than against
 merely being an approver: a Manager cannot sign off a $50,000 request just because the queue showed it to
 them. Sending a request back is open to any approver — spotting a problem does not require the authority to
 have approved it. Finance and Administrator sit outside the ladder deliberately: they see the whole register
@@ -151,8 +157,25 @@ very next request rather than after the next sign-in. A rename never touches the
 verifies before each commit that existing entries are still present and unchanged, so a code path that
 rewrites history fails instead of succeeding quietly.
 
-A status machine governs the record: `Draft → Awaiting Approval`, `Awaiting Approval → Approved | Returned`,
-`Returned → Awaiting Approval`. Nothing returns to `Draft`, and `Approved` is terminal.
+## Two gates
+
+A request passes two independent reviews, in order:
+
+```
+Draft ─submit─▶ Pending Supervisor Approval ─sign─▶ Pending Finance Review ─clear─▶ Approved
+                          │                                   │
+                          └────────── return ─────────────────┴──▶ Needs Revision ─▶ (resubmit)
+```
+
+**Gate 1** is authority: does this purchase have a supervisor behind it, at a tier that covers the amount?
+**Gate 2** is compliance: do the coding, the funding source, the receipts and the policy hold up? Finance
+cannot act on a request still at gate 1 — the endpoint refuses it, and the request is not in their queue at
+all, so nobody reviews accounting codes on something that may still be rejected. An approver cannot act
+again once they have signed.
+
+`Approved` is terminal and read-only, and it is reachable only through Finance. Nothing returns to `Draft`.
+An approver who raises their own request has it escalated past their own tier at submission, and still
+cannot approve it.
 
 ## Production boundary
 

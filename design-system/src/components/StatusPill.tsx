@@ -8,11 +8,12 @@ export type StatusPillProps = {
 /**
  * Colour-coded lifecycle badge for a purchase request.
  *
- * The class name is derived from the status text, so the four supported values map to
- * `.status-draft`, `.status-awaiting-approval`, `.status-returned` and `.status-approved`.
+ * The class name is derived from the status text, so the five values map to `.status-draft`,
+ * `.status-pending-supervisor-approval`, `.status-pending-finance-review`, `.status-needs-revision` and
+ * `.status-approved`.
  *
  * ```tsx
- * <StatusPill status="Awaiting Approval" />
+ * <StatusPill status="Pending Finance Review" />
  * ```
  */
 export function StatusPill({ status }: StatusPillProps) {

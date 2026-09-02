@@ -40,7 +40,7 @@ export type FinanceProps = {
   statuses?: Status[];
 };
 
-const DEFAULT_STATUSES: Status[] = ["Draft", "Awaiting Approval", "Returned", "Approved"];
+const DEFAULT_STATUSES: Status[] = ["Draft", "Pending Supervisor Approval", "Pending Finance Review", "Needs Revision", "Approved"];
 
 /**
  * Finance register: three metric tiles, a six-field filter bar, and a District → School → PRF table.
@@ -93,7 +93,7 @@ export function Finance({
         </article>
         <article>
           <small>Pending approvals</small>
-          <strong>{all.filter(r => ["Awaiting Approval"].includes(r.status)).length}</strong>
+          <strong>{all.filter(r => r.status === "Pending Supervisor Approval" || r.status === "Pending Finance Review").length}</strong>
           <span>Requires action</span>
         </article>
         <article>

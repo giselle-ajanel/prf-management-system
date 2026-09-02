@@ -84,9 +84,12 @@ const rejects = async (work, expected) => {
 // ---- actors ----------------------------------------------------------------------------------------
 const alice = { userId: "u-alice", email: "alice@woodcraftrangers.org", name: "Alice Requester", role: "REQUESTER" };
 const bob = { userId: "u-bob", email: "bob@woodcraftrangers.org", name: "Bob Requester", role: "REQUESTER" };
-const approver = { userId: "u-appr", email: "director@woodcraftrangers.org", name: "Ana Rivera", role: "DIRECTOR" };
-const manager = { userId: "u-mgr", email: "manager@woodcraftrangers.org", name: "Marcus Lee", role: "MANAGER" };
-const finance = { userId: "u-fin", email: "finance@woodcraftrangers.org", name: "Tomas Reyes", role: "FINANCE" };
+const approver = { userId: "u-appr", email: "director@woodcraftrangers.org", name: "Ana Rivera", role: "APPROVER", tier: "DIRECTOR" };
+const manager = { userId: "u-mgr", email: "manager@woodcraftrangers.org", name: "Marcus Lee", role: "APPROVER", tier: "MANAGER" };
+const chief = { userId: "u-chief", email: "chief@woodcraftrangers.org", name: "Daniel Okafor", role: "APPROVER", tier: "CHIEF" };
+const finance = { userId: "u-fin", email: "finance@woodcraftrangers.org", name: "Tomas Reyes", role: "FINANCE_REVIEWER" };
+const financeAdmin = { userId: "u-fadm", email: "financeadmin@woodcraftrangers.org", name: "Elena Petrov", role: "FINANCE_ADMIN" };
+const viewer = { userId: "u-view", email: "viewonly@woodcraftrangers.org", name: "Auditor Reid", role: "VIEW_ONLY" };
 
 const draft = (overrides = {}) => ({
   vendor: "Northstar Learning",
@@ -258,46 +261,60 @@ await check("a filename cannot escape its directory or carry markup", () => {
   assert.equal(S.uploads.safeFilename(""), "attachment");
 });
 
-// ---- the signing ladder ----------------------------------------------------------------------------
+// ---- roles and tiers -------------------------------------------------------------------------------
 
-await check("each position carries its own signing limit", () => {
-  assert.equal(S.approvalLimit("REQUESTER"), 0);
-  assert.equal(S.approvalLimit("MANAGER"), 5000);
-  assert.equal(S.approvalLimit("DIRECTOR"), 15000);
-  assert.equal(S.approvalLimit("SENIOR_DIRECTOR"), 25000);
-  assert.equal(S.approvalLimit("CHIEF"), 75000);
-  assert.equal(S.approvalLimit("CFO"), Infinity);
-  assert.equal(S.approvalLimit("CEO"), Infinity);
-  // Administering the system is not the same power as authorising money.
-  assert.equal(S.approvalLimit("FINANCE"), 0);
-  assert.equal(S.approvalLimit("ADMIN"), 0);
-  assert.equal(S.isAdmin("FINANCE"), true);
-  assert.equal(S.isApprover("FINANCE"), false);
+await check("capabilities are cumulative, and Finance holds no signing authority", () => {
+  // Everyone who works here buys things; only a read-only viewer cannot raise a request.
+  for (const role of ["REQUESTER", "APPROVER", "FINANCE_REVIEWER", "FINANCE_ADMIN"]) {
+    assert.equal(S.canRequest(role), true, `${role} should be able to request`);
+  }
+  assert.equal(S.canRequest("VIEW_ONLY"), false);
+
+  assert.equal(S.isApprover("APPROVER"), true);
+  assert.equal(S.isApprover("FINANCE_ADMIN"), false, "administering is not signing authority");
+  assert.equal(S.isFinance("FINANCE_REVIEWER"), true);
+  assert.equal(S.isFinance("FINANCE_ADMIN"), true);
+  assert.equal(S.isAdmin("FINANCE_REVIEWER"), false, "a reviewer does not administer the system");
+  assert.equal(S.isAdmin("FINANCE_ADMIN"), true);
+  // Everyone but a plain requester reads the organisation's submitted register.
+  assert.equal(S.seesRegister("REQUESTER"), false);
+  assert.equal(S.seesRegister("VIEW_ONLY"), true);
 });
 
-await check("a position can approve up to its limit and no further", () => {
-  assert.equal(S.canApprove("MANAGER", 4999), true);
-  assert.equal(S.canApprove("MANAGER", 5000), true);
-  assert.equal(S.canApprove("MANAGER", 5001), false);
-  assert.equal(S.canApprove("CHIEF", 75000), true);
-  assert.equal(S.canApprove("CHIEF", 75001), false);
-  assert.equal(S.canApprove("CEO", 9_000_000), true);
-  assert.equal(S.canApprove("REQUESTER", 1), false);
+await check("each tier carries its own limit, and an amount picks the lowest tier that covers it", () => {
+  assert.equal(S.tierLimit("MANAGER"), 5000);
+  assert.equal(S.tierLimit("DIRECTOR"), 15000);
+  assert.equal(S.tierLimit("CHIEF"), 75000);
+  assert.equal(S.tierLimit(undefined), 0);
+  assert.equal(S.tierForAmount(4999), "MANAGER");
+  assert.equal(S.tierForAmount(5001), "DIRECTOR");
+  assert.equal(S.tierForAmount(48900), "CHIEF");
+  assert.equal(S.tierForAmount(300000), "CFO", "CFO and CEO both cover any amount; CFO is the lower of the two");
+  assert.equal(S.nextTierAbove("MANAGER"), "DIRECTOR");
+  assert.equal(S.nextTierAbove("CEO"), "CEO");
 });
 
-await check("roles stored before the ladder existed resolve to Director", () => {
-  assert.equal(S.normalizeRole("APPROVER"), "DIRECTOR");
-  assert.equal(S.normalizeRole("nonsense"), "REQUESTER");
-  assert.equal(S.normalizeRole("CFO"), "CFO");
+await check("accounts stored under the old ladder-as-role model read forward", () => {
+  assert.deepEqual(S.normalizeRole("DIRECTOR"), { role: "APPROVER", tier: "DIRECTOR" });
+  // "APPROVER" is also the new role name, so it resolves as one; the missing band is defaulted at load.
+  assert.deepEqual(S.normalizeRole("APPROVER"), { role: "APPROVER" });
+  assert.deepEqual(S.normalizeRole("FINANCE"), { role: "FINANCE_ADMIN" });
+  assert.deepEqual(S.normalizeRole("REQUESTER"), { role: "REQUESTER" });
+  assert.equal(S.normalizeStatus("Awaiting Approval"), "Pending Supervisor Approval");
+  assert.equal(S.normalizeStatus("Returned"), "Needs Revision");
+  assert.equal(S.normalizeStatus("Approved"), "Approved");
 });
 
-// ---- status machine --------------------------------------------------------------------------------
+// ---- status machine ---// ---- status machine --------------------------------------------------------------------------------
 
-await check("no transition returns a submitted or approved PRF to Draft", () => {
-  assert.throws(() => S.assertTransition("Awaiting Approval", "Draft"), /cannot become Draft/);
+await check("the two gates are the only route to Approved, and nothing returns to Draft", () => {
+  assert.throws(() => S.assertTransition("Pending Supervisor Approval", "Draft"), /cannot become Draft/);
   assert.throws(() => S.assertTransition("Approved", "Draft"), /cannot become Draft/);
-  assert.throws(() => S.assertTransition("Returned", "Draft"), /cannot become Draft/);
-  assert.throws(() => S.assertTransition("Approved", "Awaiting Approval"), /cannot become/);
+  assert.throws(() => S.assertTransition("Needs Revision", "Draft"), /cannot become Draft/);
+  // Gate 1 cannot skip Finance and land on Approved.
+  assert.throws(() => S.assertTransition("Pending Supervisor Approval", "Approved"), /cannot become Approved/);
+  // Approved is terminal.
+  assert.throws(() => S.assertTransition("Approved", "Pending Finance Review"), /cannot become/);
 });
 
 // ---- the lifecycle, with both requesters and the approver acting -----------------------------------
@@ -312,8 +329,11 @@ await check("a requester can create a draft", async () => {
   assert.equal(alicePrf.audit.length, 1);
 });
 
-await check("an approver cannot create a purchase request", async () => {
-  await rejects(() => S.createDraft(approver, S.input.parseDraft(draft())), "Only requesters can create");
+await check("everyone but a read-only viewer can raise a request", async () => {
+  const byApprover = await S.createDraft(approver, S.input.parseDraft(draft()));
+  assert.equal(byApprover.ownerId, approver.userId);
+  await S.deleteDraft(approver, byApprover.id);
+  await rejects(() => S.createDraft(viewer, S.input.parseDraft(draft())), "view-only account cannot create");
 });
 
 await check("another requester cannot see the draft in their list", async () => {
@@ -346,7 +366,7 @@ await check("submission requires a signature and a complete record", async () =>
 await check("submitting signs, routes by amount, and records both in the audit trail", async () => {
   const before = alicePrf.audit.length;
   alicePrf = await S.submitRequest(alice, alicePrf.id, "Alice Requester");
-  assert.equal(alicePrf.status, "Awaiting Approval");
+  assert.equal(alicePrf.status, "Pending Supervisor Approval");
   assert.equal(alicePrf.requesterSigned, true);
   assert.equal(alicePrf.approvals[1].role, "Director"); // $7,800 lands in the $5,001–$15,000 band
   assert.equal(alicePrf.audit.length, before + 2);
@@ -361,7 +381,7 @@ await check("a submitted PRF can no longer be edited or deleted by its requester
 await check("a requester cannot approve anything, including their own request", async () => {
   await rejects(
     () => S.decideRequest(alice, alicePrf.id, { action: "approve", comment: "", signature: "Alice" }),
-    "Only approvers can review",
+    "Only approvers can sign off",
   );
 });
 
@@ -378,41 +398,63 @@ await check("a send-back records the reason and reopens the PRF for editing", as
     comment: "Attach the vendor quote and split the transport line onto its own PRF.",
     signature: "",
   });
-  assert.equal(alicePrf.status, "Returned");
+  assert.equal(alicePrf.status, "Needs Revision");
   assert.ok(alicePrf.reviewNote.startsWith("Attach the vendor quote"));
   assert.equal(alicePrf.audit.at(-1).actorName, approver.name);
 
   alicePrf = await S.updateDraft(alice, alicePrf.id, S.input.parseDraft(draft({ vendor: "Northstar Learning Ltd" })));
   assert.equal(alicePrf.vendor, "Northstar Learning Ltd");
   alicePrf = await S.submitRequest(alice, alicePrf.id, "Alice Requester");
-  assert.equal(alicePrf.status, "Awaiting Approval");
+  assert.equal(alicePrf.status, "Pending Supervisor Approval");
 });
 
-await check("approval requires a signature and is terminal", async () => {
+await check("gate 1 hands the request to Finance rather than finishing it", async () => {
   await rejects(
     () => S.decideRequest(approver, alicePrf.id, { action: "approve", comment: "", signature: "" }),
     "signature is required",
   );
-  alicePrf = await S.decideRequest(approver, alicePrf.id, { action: "approve", comment: "", signature: "Marcus Lee" });
-  assert.equal(alicePrf.status, "Approved");
+  alicePrf = await S.decideRequest(approver, alicePrf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.equal(alicePrf.status, "Pending Finance Review");
   assert.equal(alicePrf.approverSigned, true);
-  assert.ok(alicePrf.approvedAt);
+  assert.equal(alicePrf.approverName, approver.name);
+  // The approver is done with it; acting again is refused rather than signing twice.
   await rejects(
     () => S.decideRequest(approver, alicePrf.id, { action: "reject", comment: "changed my mind", signature: "" }),
-    "cannot become Returned",
+    "already been approved and is with Finance",
   );
   await rejects(() => S.deleteDraft(alice, alicePrf.id), "unsubmitted draft");
+});
+
+await check("gate 2 is Finance's, and only Finance can close it", async () => {
+  await rejects(
+    () => S.financeReview(approver, alicePrf.id, { action: "approve", comment: "", signature: "Ana" }),
+    "Only Finance can complete",
+  );
+  await rejects(
+    () => S.financeReview(finance, alicePrf.id, { action: "approve", comment: "", signature: "" }),
+    "signature is required",
+  );
+  alicePrf = await S.financeReview(finance, alicePrf.id, { action: "approve", comment: "Coding checks out.", signature: "Tomas Reyes" });
+  assert.equal(alicePrf.status, "Approved");
+  assert.equal(alicePrf.financeSigned, true);
+  assert.equal(alicePrf.financeName, finance.name);
+  assert.ok(alicePrf.completedAt);
+  // Final and read-only: neither gate can reopen it.
+  await rejects(() => S.financeReview(finance, alicePrf.id, { action: "reject", comment: "second thoughts", signature: "" }), "cannot become");
+  await rejects(() => S.decideRequest(approver, alicePrf.id, { action: "reject", comment: "no", signature: "" }), "cannot become");
 });
 
 await check("the audit trail only ever grew, and its earlier entries are untouched", async () => {
   const final = await S.getRequest(approver, alicePrf.id);
   const actions = final.audit.map(entry => entry.action);
   assert.deepEqual(actions.slice(0, 2), ["Draft created", "Submitted and electronically signed"]);
-  // Seven events: created, submitted, routed, returned, saved, resubmitted, routed, approved.
-  assert.equal(final.audit.length, 8);
+  // Created, submitted, routed, returned, saved, resubmitted, routed, approved, sent to Finance, cleared.
+  assert.equal(final.audit.length, 10);
   assert.ok(final.audit.every(entry => entry.id && entry.at && entry.actorName));
   // Every entry carries who did it, which is the point of keeping them.
+  // The approver appears twice: the return, and the signature. The hand-off to Finance is the system.
   assert.equal(final.audit.filter(entry => entry.actorId === approver.userId).length, 2);
+  assert.ok(final.audit.some(entry => entry.action === "Cleared for payment by Finance"));
 });
 
 await check("a second requester's PRF stays invisible to the first", async () => {
@@ -439,44 +481,25 @@ await check("an approver cannot sign off more than their position allows", async
   // $48,900 needs a Chief. A Manager and a Director may both look at it and neither may approve it.
   await rejects(() => S.decideRequest(manager, big.id, { action: "approve", comment: "", signature: "Marcus" }), "authority covers up to");
   await rejects(() => S.decideRequest(approver, big.id, { action: "approve", comment: "", signature: "Ana" }), "Chief approval");
+  // A Chief can, and it goes to Finance rather than straight to done.
+  const cleared = await S.decideRequest(chief, big.id, { action: "approve", comment: "", signature: "Daniel Okafor" });
+  assert.equal(cleared.status, "Pending Finance Review");
 
-  // Sending it back is open to any approver — spotting a problem needs no signing authority.
-  const returned = await S.decideRequest(manager, big.id, { action: "reject", comment: "Split this across two PRFs.", signature: "" });
-  assert.equal(returned.status, "Returned");
 });
 
-await check("Finance administers but cannot authorise spending", async () => {
-  const prf = await S.createDraft(alice, S.input.parseDraft(draft()));
-  const submitted = await S.submitRequest(alice, prf.id, "Alice Requester");
-  await rejects(() => S.decideRequest(finance, prf.id, { action: "approve", comment: "", signature: "Tomas" }), "Only approvers");
-  // ...but Finance still sees the whole register.
-  assert.ok((await S.listRequests(finance)).some(entry => entry.id === submitted.id));
-});
 
 await check("only Finance or an administrator reassigns a position, and never their own", async () => {
-  await S.upsertUser({ id: finance.userId, email: finance.email, firstName: "Tomas", lastName: "Reyes", name: finance.name, contactEmail: finance.email, role: "FINANCE", district: "W", school: "Finance", passwordHash: "" });
+  await S.upsertUser({ id: finance.userId, email: finance.email, firstName: "Tomas", lastName: "Reyes", name: finance.name, contactEmail: finance.email, role: "FINANCE_REVIEWER", district: "W", school: "Finance", passwordHash: "" });
+  await S.upsertUser({ id: financeAdmin.userId, email: financeAdmin.email, firstName: "Elena", lastName: "Petrov", name: financeAdmin.name, contactEmail: financeAdmin.email, role: "FINANCE_ADMIN", district: "W", school: "Finance", passwordHash: "" });
   await S.upsertUser({ id: alice.userId, email: alice.email, firstName: "Alice", lastName: "Requester", name: alice.name, contactEmail: alice.email, role: "REQUESTER", district: "D4", school: "CHS", passwordHash: "" });
 
-  await rejects(() => S.assignRole(alice, alice.userId, "CEO"), "Only Finance and administrators");
-  await rejects(() => S.assignRole(finance, finance.userId, "CEO"), "cannot change your own position");
-  const promoted = await S.assignRole(finance, alice.userId, "MANAGER");
-  assert.equal(promoted.role, "MANAGER");
-  await S.assignRole(finance, alice.userId, "REQUESTER");
+  await rejects(() => S.assignRole(alice, alice.userId, "FINANCE_ADMIN"), "Only Finance and administrators");
+  await rejects(() => S.assignRole(financeAdmin, financeAdmin.userId, "REQUESTER"), "cannot change your own position");
+  const promoted = await S.assignRole(financeAdmin, alice.userId, "APPROVER");
+  assert.equal(promoted.role, "APPROVER");
+  await S.assignRole(financeAdmin, alice.userId, "REQUESTER");
 });
 
-await check("a copied-in colleague is notified of the outcome, and the approver of the submission", async () => {
-  const prf = await S.createDraft(alice, S.input.parseDraft(draft({ copyName: "Site Lead", copyEmail: "lead@woodcraftrangers.org" })));
-  await S.upsertUser({ id: approver.userId, email: approver.email, firstName: "Ana", lastName: "Rivera", name: approver.name, contactEmail: approver.email, role: "DIRECTOR", district: "W", school: "Programs", passwordHash: "" });
-  await S.submitRequest(alice, prf.id, "Alice Requester");
-
-  const waiting = await S.listNotifications(approver);
-  assert.ok(waiting.some(entry => entry.kind === "submitted" && entry.requestId === prf.id));
-
-  await S.decideRequest(approver, prf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
-  assert.ok((await S.listNotifications(alice)).some(entry => entry.kind === "approved" && entry.requestId === prf.id));
-  const copied = await S.listNotifications({ ...alice, userId: "someone-else", email: "lead@woodcraftrangers.org" });
-  assert.ok(copied.some(entry => entry.kind === "approved" && entry.requestId === prf.id));
-});
 
 await check("a malformed copy address is refused", () => {
   assert.throws(() => S.input.parseDraft(draft({ copyEmail: "not-an-address" })), /valid email/);
@@ -485,64 +508,121 @@ await check("a malformed copy address is refused", () => {
 
 await check("nobody but the requester ever sees a draft", async () => {
   const secret = await S.createDraft(alice, S.input.parseDraft(draft({ vendor: "Half-typed vendor" })));
-  for (const viewer of [approver, manager, finance, bob]) {
-    const seen = await S.listRequests(viewer);
-    assert.ok(!seen.some(entry => entry.id === secret.id), `${viewer.role} could see a draft`);
-    await rejects(() => S.getRequest(viewer, secret.id), "NotFoundError");
+  for (const viewer_ of [approver, manager, finance, financeAdmin, viewer, bob]) {
+    const seen = await S.listRequests(viewer_);
+    assert.ok(!seen.some(entry => entry.id === secret.id), `${viewer_.role} could see a draft`);
+    await rejects(() => S.getRequest(viewer_, secret.id), "NotFoundError");
   }
   assert.ok((await S.listRequests(alice)).some(entry => entry.id === secret.id));
   await S.deleteDraft(alice, secret.id);
 });
 
-await check("an approver sees what is waiting and what was approved", async () => {
+await check("gate 1 is the approvers' queue, and Finance cannot see into it", async () => {
   const waiting = await S.createDraft(alice, S.input.parseDraft(draft()));
   await S.submitRequest(alice, waiting.id, "Alice Requester");
-  const queue = await S.listRequests(approver);
-  assert.ok(queue.some(entry => entry.id === waiting.id && entry.status === "Awaiting Approval"));
-  assert.ok(queue.every(entry => entry.status !== "Draft"));
 
-  const decided = await S.decideRequest(approver, waiting.id, { action: "approve", comment: "", signature: "Ana Rivera" });
-  assert.equal(decided.status, "Approved");
-  assert.ok((await S.listRequests(manager)).some(entry => entry.id === waiting.id));
+  // Approvers see it; Finance does not, because it has not cleared gate 1.
+  assert.ok((await S.listRequests(approver)).some(entry => entry.id === waiting.id));
+  assert.ok(!(await S.listRequests(finance)).some(entry => entry.id === waiting.id));
+  await rejects(() => S.getRequest(finance, waiting.id), "NotFoundError");
+  // And acting on it is refused rather than merely hidden.
+  await rejects(
+    () => S.financeReview(finance, waiting.id, { action: "approve", comment: "", signature: "Tomas" }),
+    "NotFoundError",
+  );
+
+  // After the signature it becomes Finance's, and leaves the queues of approvers who did not sign it.
+  const signed = await S.decideRequest(approver, waiting.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.equal(signed.status, "Pending Finance Review");
+  assert.ok((await S.listRequests(finance)).some(entry => entry.id === waiting.id));
+  assert.ok(!(await S.listRequests(manager)).some(entry => entry.id === waiting.id), "an approver who did not sign it should not still hold it");
+  // The approver who signed it can still follow it through Finance.
+  assert.ok((await S.listRequests(approver)).some(entry => entry.id === waiting.id));
+
+  const done = await S.financeReview(finance, waiting.id, { action: "approve", comment: "", signature: "Tomas Reyes" });
+  assert.equal(done.status, "Approved");
+  // A read-only viewer sees the completed record and cannot act on it.
+  assert.ok((await S.listRequests(viewer)).some(entry => entry.id === waiting.id));
+  await rejects(() => S.decideRequest(viewer, waiting.id, { action: "reject", comment: "no", signature: "" }), "Only approvers");
 });
 
-await check("a returned request follows the approver who returned it", async () => {
+await check("a returned request follows whoever returned it, from either gate", async () => {
   const sent = await S.createDraft(alice, S.input.parseDraft(draft()));
   await S.submitRequest(alice, sent.id, "Alice Requester");
   const returned = await S.decideRequest(manager, sent.id, { action: "reject", comment: "Attach the quote.", signature: "" });
+  assert.equal(returned.status, "Needs Revision");
   assert.equal(returned.returnedBy, manager.userId);
-  assert.equal(returned.returnedByName, manager.name);
+  assert.equal(returned.returnedStage, "supervisor");
 
-  // The approver who sent it back tracks it to resolution...
   assert.ok((await S.listRequests(manager)).some(entry => entry.id === sent.id));
-  // ...a different approver does not inherit someone else's return...
   assert.ok(!(await S.listRequests(approver)).some(entry => entry.id === sent.id));
-  await rejects(() => S.getRequest(approver, sent.id), "NotFoundError");
-  // ...the requester still has their own request, and Finance still has a complete register.
   assert.ok((await S.listRequests(alice)).some(entry => entry.id === sent.id));
-  assert.ok((await S.listRequests(finance)).some(entry => entry.id === sent.id));
+  assert.ok((await S.listRequests(financeAdmin)).some(entry => entry.id === sent.id));
+
+  // Resubmitted, approved, then returned by Finance: the stage is recorded so the requester knows which
+  // kind of problem they are fixing.
+  await S.submitRequest(alice, sent.id, "Alice Requester");
+  await S.decideRequest(approver, sent.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  const bounced = await S.financeReview(finance, sent.id, { action: "reject", comment: "Funding code is for FY26.", signature: "" });
+  assert.equal(bounced.status, "Needs Revision");
+  assert.equal(bounced.returnedStage, "finance");
+  assert.match(bounced.audit.at(-1).detail, /^Fiscal issue:/);
 });
 
-await check("an approval records the approver's name and their immutable id", async () => {
+await check("both signatures are recorded with names and immutable ids", async () => {
   const prf = await S.createDraft(alice, S.input.parseDraft(draft()));
   await S.submitRequest(alice, prf.id, "Alice Requester");
-  const approved = await S.decideRequest(approver, prf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
-  assert.equal(approved.approverName, approver.name);
-  assert.equal(approved.approverId, approver.userId);
-  const entry = approved.audit.at(-1);
-  assert.equal(entry.actorId, approver.userId);
-  assert.equal(entry.actorName, approver.name);
+  const signed = await S.decideRequest(approver, prf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.equal(signed.approverName, approver.name);
+  assert.equal(signed.approverId, approver.userId);
+  const done = await S.financeReview(finance, prf.id, { action: "approve", comment: "", signature: "Tomas Reyes" });
+  assert.equal(done.financeName, finance.name);
+  assert.equal(done.financeId, finance.userId);
+  assert.ok(done.audit.some(entry => entry.actorId === approver.userId));
+  assert.ok(done.audit.some(entry => entry.actorId === finance.userId));
+});
+
+await check("an approver's own request escalates past their own tier", async () => {
+  // A Manager's $3,000 request would sit in a Manager's queue — their own. It escalates to Director.
+  const own = await S.createDraft(manager, S.input.parseDraft(draft({
+    lineItems: [{ description: "Team supplies", quantity: 1, unitPrice: 3000 }],
+  })));
+  const submitted = await S.submitRequest(manager, own.id, "Marcus Lee");
+  assert.equal(submitted.requiredTier, "DIRECTOR");
+  await rejects(() => S.decideRequest(manager, own.id, { action: "approve", comment: "", signature: "Marcus" }), "cannot approve a request you submitted");
+  const signed = await S.decideRequest(approver, own.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.equal(signed.status, "Pending Finance Review");
+});
+
+await check("everyone in the chain is notified at the stage that concerns them", async () => {
+  const prf = await S.createDraft(alice, S.input.parseDraft(draft({ copyName: "Site Lead", copyEmail: "lead@woodcraftrangers.org" })));
+  await S.upsertUser({ id: approver.userId, email: approver.email, firstName: "Ana", lastName: "Rivera", name: approver.name, contactEmail: approver.email, role: "APPROVER", tier: "DIRECTOR", district: "W", school: "Programs", passwordHash: "" });
+  await S.upsertUser({ id: finance.userId, email: finance.email, firstName: "Tomas", lastName: "Reyes", name: finance.name, contactEmail: finance.email, role: "FINANCE_REVIEWER", district: "W", school: "Finance", passwordHash: "" });
+  await S.submitRequest(alice, prf.id, "Alice Requester");
+
+  // Gate 1: the approvers who could sign it.
+  assert.ok((await S.listNotifications(approver)).some(entry => entry.kind === "submitted" && entry.requestId === prf.id));
+
+  await S.decideRequest(approver, prf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  // Gate 2: Finance is told there is something to review.
+  assert.ok((await S.listNotifications(finance)).some(entry => entry.requestId === prf.id && /Finance review/.test(entry.title)));
+
+  await S.financeReview(finance, prf.id, { action: "approve", comment: "", signature: "Tomas Reyes" });
+  // Completion: the requester and the copied-in colleague.
+  assert.ok((await S.listNotifications(alice)).some(entry => entry.requestId === prf.id && /approved and complete/.test(entry.title)));
+  const copied = await S.listNotifications({ ...alice, userId: "someone-else", email: "lead@woodcraftrangers.org" });
+  assert.ok(copied.some(entry => entry.requestId === prf.id && /approved and complete/.test(entry.title)));
 });
 
 await check("a rename is logged, and the log is append-only", async () => {
-  await S.upsertUser({ id: "u-rename", email: "manager@woodcraftrangers.org", firstName: "Marcus", lastName: "Lee", name: "Marcus Lee", contactEmail: "manager@woodcraftrangers.org", role: "MANAGER", district: "W", school: "Ops", passwordHash: "" });
-  const actor = { userId: "u-rename", email: "manager@woodcraftrangers.org", name: "Marcus Lee", role: "MANAGER" };
+  await S.upsertUser({ id: "u-rename", email: "manager@woodcraftrangers.org", firstName: "Marcus", lastName: "Lee", name: "Marcus Lee", contactEmail: "manager@woodcraftrangers.org", role: "APPROVER", tier: "MANAGER", district: "W", school: "Ops", passwordHash: "" });
+  const actor = { userId: "u-rename", email: "manager@woodcraftrangers.org", name: "Marcus Lee", role: "APPROVER", tier: "MANAGER" };
 
   const renamed = await S.updateProfile(actor, { firstName: "Jane", lastName: "Doe", contactEmail: "jane.doe@woodcraftrangers.org" });
   assert.equal(renamed.name, "Jane Doe");
-  assert.equal(renamed.role, "MANAGER", "a rename must not touch the position");
+  assert.equal(renamed.role, "APPROVER", "a rename must not touch the position");
 
-  const log = await S.listAccountLog(finance);
+  const log = await S.listAccountLog(financeAdmin);
   const rename = log.find(entry => entry.subjectId === "u-rename" && entry.action === "Display name changed");
   assert.ok(rename, "the rename was not logged");
   assert.match(rename.detail, /"Marcus Lee" to "Jane Doe"/);
@@ -554,14 +634,14 @@ await check("a rename is logged, and the log is append-only", async () => {
 });
 
 await check("a position change is logged against the administrator who made it", async () => {
-  const before = (await S.listAccountLog(finance)).length;
-  await S.assignRole(finance, "u-rename", "DIRECTOR");
-  const log = await S.listAccountLog(finance);
+  const before = (await S.listAccountLog(financeAdmin)).length;
+  await S.assignRole(financeAdmin, "u-rename", "FINANCE_REVIEWER");
+  const log = await S.listAccountLog(financeAdmin);
   assert.equal(log.length, before + 1);
   assert.equal(log[0].action, "Position changed");
-  assert.equal(log[0].actorId, finance.userId);
+  assert.equal(log[0].actorId, financeAdmin.userId);
   assert.equal(log[0].subjectId, "u-rename");
-  assert.match(log[0].detail, /Manager to Director/);
+  assert.match(log[0].detail, /Approver to Finance Reviewer/);
 });
 
 // ---- sessions --------------------------------------------------------------------------------------

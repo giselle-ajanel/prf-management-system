@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     const { session, token } = startSession(user);
     const response = json({
-      user: { name: user.name, email: user.email, role: user.role, district: user.district, school: user.school },
+      user: { name: user.name, email: user.email, role: user.role, tier: user.tier, district: user.district, school: user.school },
       csrfToken: session.csrf,
     });
     return applySession(response as NextResponse, token, session.csrf);

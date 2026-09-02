@@ -10,6 +10,8 @@ import {
   NotFoundError,
   isAdmin,
   isApprover,
+  isFinance,
+  seesRegister,
   provisionFromIdentity,
   type Role,
 } from "./store";
@@ -55,7 +57,7 @@ export type RouteOptions = {
    * route. "approver" is anyone with signing authority, "admin" is Finance or Administrator, and
    * "register" is either — the people entitled to see the whole book rather than their own requests.
    */
-  authority?: "approver" | "admin" | "register";
+  authority?: "approver" | "finance" | "admin" | "register";
   /** Mutations require a CSRF token and are held to a write budget. */
   mutation?: boolean;
   budget?: Budget;
@@ -156,9 +158,11 @@ export function authenticated<T = unknown>(
         const allowed =
           options.authority === "approver"
             ? isApprover(session.role)
-            : options.authority === "admin"
-              ? isAdmin(session.role)
-              : isApprover(session.role) || isAdmin(session.role);
+            : options.authority === "finance"
+              ? isFinance(session.role)
+              : options.authority === "admin"
+                ? isAdmin(session.role)
+                : seesRegister(session.role);
         if (!allowed) return json({ error: "You do not have access to this area" }, { status: 403 });
       }
 

@@ -142,6 +142,7 @@ export {
 export {
   SupervisorReview,
   DEFAULT_REVIEW_CHECKLIST,
+  FINANCE_REVIEW_CHECKLIST,
   type SupervisorReviewProps,
 } from "./components/SupervisorReview";
 

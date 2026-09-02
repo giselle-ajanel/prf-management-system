@@ -122,24 +122,26 @@ for (let attempt = 0; attempt < 20 && !Object.keys(credentials).length; attempt 
   try {
     const text = await fs.readFile(credentialsFile, "utf8");
     for (const row of text.split(String.fromCharCode(10))) {
-      const match = /^([A-Z_]+)\s+(\S+)\s+(\S+)$/.exec(row.trim());
+      const match = /^([A-Z_\/]+)\s+(\S+)\s+(\S+)$/.exec(row.trim());
       if (match) (credentials[match[1]] = credentials[match[1]] || []).push({ email: match[2], password: match[3] });
     }
   } catch { await new Promise(resolve => setTimeout(resolve, 500)); }
 }
 
-const alice = jar(), maya = jar(), approver = jar(), stranger = jar();
+const alice = jar(), maya = jar(), approver = jar(), financeUser = jar(), stranger = jar();
 
 await check("the demo accounts were seeded across the ladder with generated passwords", () => {
   assert.equal(credentials.REQUESTER?.length, 2);
-  assert.equal(credentials.MANAGER?.length, 1);
-  assert.equal(credentials.DIRECTOR?.length, 1);
-  assert.equal(credentials.CFO?.length, 1);
-  assert.equal(credentials.FINANCE?.length, 1);
+  assert.equal(credentials["APPROVER/MANAGER"]?.length, 1);
+  assert.equal(credentials["APPROVER/DIRECTOR"]?.length, 1);
+  assert.equal(credentials["APPROVER/CFO"]?.length, 1);
+  assert.equal(credentials.FINANCE_REVIEWER?.length, 1);
+  assert.equal(credentials.FINANCE_ADMIN?.length, 1);
+  assert.equal(credentials.VIEW_ONLY?.length, 1);
   assert.ok(credentials.REQUESTER[0].password.length >= 12);
   // Position-prefixed addresses, on the domain the SSO allowlist is configured for.
-  assert.match(credentials.MANAGER[0].email, /^manager@woodcraftrangers\.org$/);
-  assert.match(credentials.CFO[0].email, /^cfo@woodcraftrangers\.org$/);
+  assert.match(credentials["APPROVER/MANAGER"][0].email, /^manager@woodcraftrangers\.org$/);
+  assert.match(credentials["APPROVER/CFO"][0].email, /^cfo@woodcraftrangers\.org$/);
 });
 
 // ---- unauthenticated -------------------------------------------------------------------------------
@@ -162,6 +164,7 @@ await check("every mutation is refused without a session", async () => {
     ["DELETE", "/api/requests/PRF-FY27-0001"],
     ["POST", "/api/requests/PRF-FY27-0001/submit"],
     ["POST", "/api/requests/PRF-FY27-0001/decision"],
+    ["POST", "/api/requests/PRF-FY27-0001/finance-review"],
   ]) {
     const response = await call(stranger, method, url, method === "DELETE" ? undefined : {});
     assert.equal(response.status, 401, `${method} ${url} returned ${response.status}`);
@@ -200,9 +203,12 @@ await check("signing in issues an http-only session cookie and a CSRF token", as
 
 await check("the other accounts sign in too", async () => {
   assert.equal((await call(maya, "POST", "/api/auth/login", credentials.REQUESTER[1])).status, 200);
-  const response = await call(approver, "POST", "/api/auth/login", credentials.DIRECTOR[0]);
+  const response = await call(approver, "POST", "/api/auth/login", credentials["APPROVER/DIRECTOR"][0]);
   assert.equal(response.status, 200);
-  assert.equal(response.body.user.role, "DIRECTOR");
+  assert.equal(response.body.user.role, "APPROVER");
+  assert.equal(response.body.user.tier, "DIRECTOR");
+  const fin = await call(financeUser, "POST", "/api/auth/login", credentials.FINANCE_REVIEWER[0]);
+  assert.equal(fin.body.user.role, "FINANCE_REVIEWER");
 });
 
 // ---- CSRF ------------------------------------------------------------------------------------------
@@ -326,13 +332,16 @@ await check("a requester cannot approve, and cannot reach the export", async () 
 
 // ---- approval --------------------------------------------------------------------------------------
 
-await check("an approver cannot see the draft, and cannot create a request", async () => {
+await check("an approver cannot see someone else's draft, but can raise their own request", async () => {
   // Still a draft at this point in the run: private to Giselle until she submits it.
   const list = await call(approver, "GET", "/api/requests");
   assert.equal(list.status, 200);
   assert.ok(!list.body.requests.some(entry => entry.id === alicePrf));
   assert.equal((await call(approver, "GET", `/api/requests/${alicePrf}`)).status, 404);
-  assert.equal((await call(approver, "POST", "/api/requests", { vendor: "X" })).status, 403);
+  // Capabilities are cumulative now: an approver buys things too.
+  const own = await call(approver, "POST", "/api/requests", { vendor: "Own purchase" });
+  assert.equal(own.status, 201);
+  assert.equal((await call(approver, "DELETE", `/api/requests/${own.body.request.id}`)).status, 200);
 });
 
 await check("an unsubmitted PRF cannot be approved, and its existence is not disclosed", async () => {
@@ -348,7 +357,7 @@ await check("an unsubmitted PRF cannot be approved, and its existence is not dis
 await check("the requester submits and signs", async () => {
   const response = await call(alice, "POST", `/api/requests/${alicePrf}/submit`, { signature: "Alice Requester" });
   assert.equal(response.status, 200);
-  assert.equal(response.body.request.status, "Awaiting Approval");
+  assert.equal(response.body.request.status, "Pending Supervisor Approval");
   assert.equal(response.body.request.requesterSigned, true);
 });
 
@@ -363,7 +372,10 @@ await check("sending back without a comment is refused", async () => {
   assert.match(response.body.error, /comment is required/i);
 });
 
-await check("approving records the signature, the approver and the timestamp", async () => {
+await check("approving hands the request to Finance rather than finishing it", async () => {
+  // Finance is locked out while it sits at gate 1.
+  assert.equal((await call(financeUser, "POST", `/api/requests/${alicePrf}/finance-review`, { action: "approve", signature: "Tomas" })).status, 404);
+
   const response = await call(approver, "POST", `/api/requests/${alicePrf}/decision`, {
     action: "approve",
     comment: "Coding checks out.",
@@ -371,20 +383,30 @@ await check("approving records the signature, the approver and the timestamp", a
   });
   assert.equal(response.status, 200);
   const record = response.body.request;
-  assert.equal(record.status, "Approved");
+  assert.equal(record.status, "Pending Finance Review");
   assert.equal(record.approverSigned, true);
   assert.ok(record.approvedAt);
-  const last = record.audit.at(-1);
-  assert.match(last.action, /Approved and electronically signed/);
-  assert.equal(last.actorName, "Ana Rivera");
+  assert.ok(record.audit.some(entry => /Approved and electronically signed/.test(entry.action) && entry.actorName === "Ana Rivera"));
 });
 
-await check("an approved PRF is terminal", async () => {
-  const response = await call(approver, "POST", `/api/requests/${alicePrf}/decision`, {
-    action: "reject",
-    comment: "second thoughts",
+await check("an approver cannot act again once Finance has it", async () => {
+  const again = await call(approver, "POST", `/api/requests/${alicePrf}/decision`, { action: "reject", comment: "second thoughts" });
+  assert.equal(again.status, 403);
+});
+
+await check("Finance clears the request for payment and the record becomes final", async () => {
+  const cleared = await call(financeUser, "POST", `/api/requests/${alicePrf}/finance-review`, {
+    action: "approve", comment: "Codes and receipts verified.", signature: "Tomas Reyes",
   });
-  assert.equal(response.status, 409);
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.request.status, "Approved");
+  assert.equal(cleared.body.request.financeName, "Tomas Reyes");
+  assert.ok(cleared.body.request.completedAt);
+});
+
+await check("an approved PRF is terminal at both gates", async () => {
+  assert.equal((await call(approver, "POST", `/api/requests/${alicePrf}/decision`, { action: "reject", comment: "no" })).status, 409);
+  assert.equal((await call(financeUser, "POST", `/api/requests/${alicePrf}/finance-review`, { action: "reject", comment: "no" })).status, 409);
 });
 
 await check("the audit trail records the whole lifecycle in order", async () => {
@@ -393,7 +415,9 @@ await check("the audit trail records the whole lifecycle in order", async () => 
   assert.deepEqual(actions.slice(0, 2), ["Draft created", "Draft saved"]);
   assert.ok(actions.includes("Submitted and electronically signed"));
   assert.ok(actions.includes("Routed for approval"));
-  assert.equal(actions.at(-1), "Approved and electronically signed");
+  assert.ok(actions.includes("Approved and electronically signed"));
+  assert.ok(actions.includes("Sent to Finance review"));
+  assert.equal(actions.at(-1), "Cleared for payment by Finance");
 });
 
 await check("the export is served to an approver as a CSV attachment", async () => {
@@ -426,6 +450,8 @@ await check("an approver is notified of a submission, and the requester of the o
   const waiting = await call(approver, "GET", "/api/notifications");
   assert.equal(waiting.status, 200);
   assert.ok(waiting.body.notifications.some(entry => entry.kind === "submitted" && entry.requestId === alicePrf));
+  // Finance was told once the approver signed, not before.
+  assert.ok((await call(financeUser, "GET", "/api/notifications")).body.notifications.some(entry => entry.requestId === alicePrf));
   const outcome = await call(alice, "GET", "/api/notifications");
   assert.ok(outcome.body.notifications.some(entry => entry.kind === "approved" && entry.requestId === alicePrf));
 });
@@ -442,11 +468,11 @@ await check("a rename shows up immediately, without signing in again", async () 
     firstName: "Jane", lastName: "Doe", contactEmail: "director@woodcraftrangers.org",
   });
   assert.equal(renamed.status, 200);
-  assert.equal(renamed.body.profile.role, "DIRECTOR", "a rename must not change the position");
+  assert.equal(renamed.body.profile.role, "APPROVER", "a rename must not change the position");
   // The session cookie carries the new name from the very next request.
   const session = await call(approver, "GET", "/api/auth/session");
   assert.equal(session.body.user.name, "Jane Doe");
-  assert.equal(session.body.user.role, "DIRECTOR");
+  assert.equal(session.body.user.role, "APPROVER");
 });
 
 // ---- sign-out --------------------------------------------------------------------------------------

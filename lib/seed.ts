@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { hashPassword } from "./password";
-import { listUsers, storeDirectory, upsertUser, type Role, type StoredUser } from "./store";
+import { listUsers, storeDirectory, upsertUser, type Role, type StoredUser, type Tier } from "./store";
 
 // First-run demo accounts.
 //
@@ -15,7 +15,7 @@ import { listUsers, storeDirectory, upsertUser, type Role, type StoredUser } fro
 // These accounts exist for the demo path only. Under SSO the proxy asserts the identity and the password
 // field is never consulted.
 
-type SeedUser = { email: string; firstName: string; lastName: string; role: Role; district: string; school: string };
+type SeedUser = { email: string; firstName: string; lastName: string; role: Role; tier?: Tier; district: string; school: string };
 
 // Position-prefixed addresses so it is obvious which ladder rung an account represents. The domain stays
 // woodcraftrangers.org: PRF_ALLOWED_EMAIL_DOMAINS is configured for it, and an account on another domain
@@ -23,13 +23,15 @@ type SeedUser = { email: string; firstName: string; lastName: string; role: Role
 const SEED_USERS: SeedUser[] = [
   { email: "giselle.ajanel@woodcraftrangers.org", firstName: "Giselle", lastName: "Ajanel", role: "REQUESTER", district: "District 4", school: "Central High School" },
   { email: "maya.thompson@woodcraftrangers.org", firstName: "Maya", lastName: "Thompson", role: "REQUESTER", district: "District 1", school: "Lincoln Middle School" },
-  { email: "manager@woodcraftrangers.org", firstName: "Marcus", lastName: "Lee", role: "MANAGER", district: "Woodcraft", school: "Operations" },
-  { email: "director@woodcraftrangers.org", firstName: "Ana", lastName: "Rivera", role: "DIRECTOR", district: "Woodcraft", school: "Programs" },
-  { email: "seniordirector@woodcraftrangers.org", firstName: "Priya", lastName: "Nair", role: "SENIOR_DIRECTOR", district: "Woodcraft", school: "Programs" },
-  { email: "chief@woodcraftrangers.org", firstName: "Daniel", lastName: "Okafor", role: "CHIEF", district: "Woodcraft", school: "Executive" },
-  { email: "cfo@woodcraftrangers.org", firstName: "Sofia", lastName: "Alvarez", role: "CFO", district: "Woodcraft", school: "Executive" },
-  { email: "ceo@woodcraftrangers.org", firstName: "Robert", lastName: "Chen", role: "CEO", district: "Woodcraft", school: "Executive" },
-  { email: "finance@woodcraftrangers.org", firstName: "Tomas", lastName: "Reyes", role: "FINANCE", district: "Woodcraft", school: "Finance" },
+  { email: "manager@woodcraftrangers.org", firstName: "Marcus", lastName: "Lee", role: "APPROVER", tier: "MANAGER", district: "Woodcraft", school: "Operations" },
+  { email: "director@woodcraftrangers.org", firstName: "Ana", lastName: "Rivera", role: "APPROVER", tier: "DIRECTOR", district: "Woodcraft", school: "Programs" },
+  { email: "seniordirector@woodcraftrangers.org", firstName: "Priya", lastName: "Nair", role: "APPROVER", tier: "SENIOR_DIRECTOR", district: "Woodcraft", school: "Programs" },
+  { email: "chief@woodcraftrangers.org", firstName: "Daniel", lastName: "Okafor", role: "APPROVER", tier: "CHIEF", district: "Woodcraft", school: "Executive" },
+  { email: "cfo@woodcraftrangers.org", firstName: "Sofia", lastName: "Alvarez", role: "APPROVER", tier: "CFO", district: "Woodcraft", school: "Executive" },
+  { email: "ceo@woodcraftrangers.org", firstName: "Robert", lastName: "Chen", role: "APPROVER", tier: "CEO", district: "Woodcraft", school: "Executive" },
+  { email: "finance@woodcraftrangers.org", firstName: "Tomas", lastName: "Reyes", role: "FINANCE_REVIEWER", district: "Woodcraft", school: "Finance" },
+  { email: "financeadmin@woodcraftrangers.org", firstName: "Elena", lastName: "Petrov", role: "FINANCE_ADMIN", district: "Woodcraft", school: "Finance" },
+  { email: "viewonly@woodcraftrangers.org", firstName: "Auditor", lastName: "Reid", role: "VIEW_ONLY", district: "Woodcraft", school: "Executive" },
 ];
 
 const password = () => randomBytes(12).toString("base64url");
@@ -53,6 +55,7 @@ export async function ensureSeeded(): Promise<void> {
         name: `${seed.firstName} ${seed.lastName}`,
         contactEmail: seed.email,
         role: seed.role,
+        tier: seed.tier,
         district: seed.district,
         school: seed.school,
         passwordHash: await hashPassword(secret),
@@ -66,7 +69,7 @@ export async function ensureSeeded(): Promise<void> {
       `Generated ${new Date().toISOString()} on first run. Delete this file to rotate: the accounts are`,
       "recreated with new passwords when the store is empty.",
       "",
-      ...created.map(entry => `${entry.user.role.padEnd(16)} ${entry.user.email.padEnd(42)} ${entry.secret}`),
+      ...created.map(entry => `${(entry.user.tier ? `${entry.user.role}/${entry.user.tier}` : entry.user.role).padEnd(24)} ${entry.user.email.padEnd(42)} ${entry.secret}`),
       "",
     ];
     // Alongside the store rather than at a fixed path, so pointing PRF_STORE_PATH elsewhere (a test

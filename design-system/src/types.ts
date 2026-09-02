@@ -8,7 +8,16 @@
 export type View = "overview" | "requests" | "approvals" | "finance" | "profile";
 
 /** Lifecycle state of a purchase request. Drives StatusPill colour and every queue filter. */
-export type Status = "Draft" | "Awaiting Approval" | "Returned" | "Approved";
+/**
+ * Lifecycle state. Two gates: a supervisor signs, then Finance reviews for coding and compliance.
+ * "Approved" is the final, read-only state, reached only through Finance.
+ */
+export type Status =
+  | "Draft"
+  | "Pending Supervisor Approval"
+  | "Pending Finance Review"
+  | "Needs Revision"
+  | "Approved";
 
 /** One line on a request: what is being bought, how many, and the unit price. */
 export type LineItem = {
@@ -67,6 +76,9 @@ export type Request = {
   approverSigned?: boolean;
   /** Printed name of whoever approved, for the supervisor block on the form and the PDF. */
   approverName?: string;
+  /** Gate 2: who cleared it for payment, and when the record became final and read-only. */
+  financeName?: string;
+  completedAt?: string;
   /** @deprecated Migrated into `requesterSigned`; retained so stored records still parse. */
   docuSignRequesterSigned?: boolean;
   /** @deprecated Migrated into `approverSigned`; retained so stored records still parse. */

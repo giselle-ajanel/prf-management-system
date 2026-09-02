@@ -40,7 +40,7 @@ const withLine = (form, index, patch) => ({
   lineItems: form.lineItems.map((line, i) => (i === index ? { ...line, ...patch } : line)),
 });
 
-const awaiting = ds.sampleRequests.find(r => r.status === "Awaiting Approval");
+const awaiting = ds.sampleRequests.find(r => r.status === "Pending Supervisor Approval");
 
 const formBase = {
   setForm: noop, notice: "", accounting: [], accountingStatus: "Loading every active FY27 site…",
@@ -61,6 +61,8 @@ const cases = [
   ["SupervisorReview.unsigned", () => createElement(ds.SupervisorReview, { request: { ...awaiting, requesterSigned: false }, onClose: noop, onApprove: noop, onReject: noop })],
   ["SupervisorReview.custom-coding", () => createElement(ds.SupervisorReview, { request: { ...awaiting, siteCode: "", customSite: true, customFunding: true }, onClose: noop, onApprove: noop, onReject: noop })],
   // $96,400 lands in the CFO + CEO band — the one tier the brief still has an open question about.
+  // The same surface at gate 2: different question, different checklist, different words on the button.
+  ["SupervisorReview.finance-gate", () => createElement(ds.SupervisorReview, { gate: "finance", request: { ...awaiting, status: "Pending Finance Review", approverName: "Ana Rivera", approverSigned: true }, onClose: noop, onApprove: noop, onReject: noop })],
   ["SupervisorReview.cfo-tier", () => createElement(ds.SupervisorReview, { request: { ...awaiting, amount: 96400, lineItems: [], documents: [] }, onClose: noop, onApprove: noop, onReject: noop })],
   // The sign-in screen: the only surface an unauthenticated visitor reaches, in each of its three states.
   ["LoginScreen.blank", () => createElement(ds.LoginScreen, { onSubmit: noop })],

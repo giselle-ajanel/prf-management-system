@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
           name: check.session.name,
           email: check.session.email,
           role: check.session.role,
+          tier: check.session.tier,
           district: check.session.district,
           school: check.session.school,
         },
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
       const started = startSession(user);
       const response = json({
         authenticated: true,
-        user: { name: user.name, email: user.email, role: user.role, district: user.district, school: user.school },
+        user: { name: user.name, email: user.email, role: user.role, tier: user.tier, district: user.district, school: user.school },
         csrfToken: started.session.csrf,
         idleTimeoutMs: IDLE_TIMEOUT_MS,
       });

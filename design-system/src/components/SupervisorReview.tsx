@@ -20,7 +20,23 @@ export type SupervisorReviewProps = {
    * reviewer who disagrees with a box should be able to say so in a rejection rather than be stuck.
    */
   checklist?: string[];
+  /**
+   * Which gate this review is. The supervisor asks whether the purchase should happen; Finance asks
+   * whether the paperwork behind an already-authorised purchase holds up. Different question, different
+   * checklist, different words on the button.
+   */
+  gate?: "supervisor" | "finance";
+  title?: string;
+  approveLabel?: string;
+  rejectLabel?: string;
 };
+
+export const FINANCE_REVIEW_CHECKLIST = [
+  "Accounting code and funding source match the site and expense type",
+  "Receipts, quotes or invoices are attached and legible",
+  "Total matches the documentation, including shipping and tax",
+  "Spending is allowable under the grant or funding restrictions",
+];
 
 export const DEFAULT_REVIEW_CHECKLIST = [
   "Funding source is eligible for this expense type and period",
@@ -54,7 +70,11 @@ export function SupervisorReview({
   onClose,
   onApprove,
   onReject,
-  checklist = DEFAULT_REVIEW_CHECKLIST,
+  gate = "supervisor",
+  checklist = gate === "finance" ? FINANCE_REVIEW_CHECKLIST : DEFAULT_REVIEW_CHECKLIST,
+  title = gate === "finance" ? "Finance review" : "Review request",
+  approveLabel = gate === "finance" ? "✓ Approve for Payment" : "✓ Approve & Electronically Sign",
+  rejectLabel = gate === "finance" ? "Reject / Return" : "Reject / Request Revision",
 }: SupervisorReviewProps) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
@@ -73,7 +93,7 @@ export function SupervisorReview({
         <div className="modalHead">
           <div>
             <StatusPill status={request.status} />
-            <h2 id="review-title">Review request</h2>
+            <h2 id="review-title">{title}</h2>
             <PrfNumber id={request.id} paymentType={request.paymentType} verbose />
           </div>
           <button className="close" onClick={onClose} aria-label="Close">
@@ -132,10 +152,12 @@ export function SupervisorReview({
             <strong>{money(request.amount)}</strong>
           </div>
           <div className="reviewTier">
-            <small>AUTHORIZATION REQUIRED</small>
-            <strong>{tier.role}</strong>
+            <small>{gate === "finance" ? "APPROVED BY" : "AUTHORIZATION REQUIRED"}</small>
+            <strong>{gate === "finance" ? request.approverName || "Supervisor" : tier.role}</strong>
             <span>
-              {tier.band} · all PRFs require two signatures
+              {gate === "finance"
+                ? `${tier.band} · cleared gate 1, now checking coding and receipts`
+                : `${tier.band} · all PRFs require two signatures`}
             </span>
           </div>
         </section>
@@ -210,8 +232,9 @@ export function SupervisorReview({
               ))}
             </ul>
             <p className="checklistNote">
-              Advisory only — if something here does not hold, send the request back with a note rather than
-              approving it.
+              {gate === "finance"
+                ? "Advisory only — if the coding or the documentation does not hold up, return it with a note saying what is wrong."
+                : "Advisory only — if something here does not hold, send the request back with a note rather than approving it."}
             </p>
           </div>
         </div>
@@ -256,7 +279,7 @@ export function SupervisorReview({
         ) : (
           <div className="modalActions reviewActions">
             <button type="button" className="secondary rejectStart" onClick={() => setRejecting(true)}>
-              Reject / Request Revision
+              {rejectLabel}
             </button>
             <button
               type="button"
@@ -265,7 +288,7 @@ export function SupervisorReview({
               title={blocked ? "The requester has not signed this PRF" : undefined}
               onClick={() => onApprove(request)}
             >
-              ✓ Approve &amp; Electronically Sign
+              {approveLabel}
             </button>
           </div>
         )}

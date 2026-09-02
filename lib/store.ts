@@ -27,73 +27,120 @@ import { FieldError } from "./sanitize";
  * reassign roles, but they cannot authorise spending — administering the system and approving money are
  * different powers, and the people who hold one should not silently hold the other.
  */
-export type Role =
-  | "REQUESTER"
-  | "MANAGER"
-  | "DIRECTOR"
-  | "SENIOR_DIRECTOR"
-  | "CHIEF"
-  | "CFO"
-  | "CEO"
-  | "FINANCE"
-  | "ADMIN";
+/**
+ * What someone may do in the Hub. Five roles, by responsibility rather than job title.
+ *
+ * Signing authority is a separate axis: an Approver also carries a `tier`, which is the dollar band they
+ * may authorise. Keeping them apart is what lets a Director's authority change without touching what kind
+ * of user they are, and what lets Finance hold review powers with no signing authority at all.
+ */
+export type Role = "REQUESTER" | "APPROVER" | "FINANCE_REVIEWER" | "FINANCE_ADMIN" | "VIEW_ONLY";
 
-export const ROLES: Role[] = [
-  "REQUESTER", "MANAGER", "DIRECTOR", "SENIOR_DIRECTOR", "CHIEF", "CFO", "CEO", "FINANCE", "ADMIN",
-];
+export const ROLES: Role[] = ["REQUESTER", "APPROVER", "FINANCE_REVIEWER", "FINANCE_ADMIN", "VIEW_ONLY"];
 
-/** The most a position may authorise. 0 means no signing authority at all. */
-const APPROVAL_LIMIT: Record<Role, number> = {
-  REQUESTER: 0,
-  MANAGER: 5000,
-  DIRECTOR: 15000,
-  SENIOR_DIRECTOR: 25000,
-  CHIEF: 75000,
-  CFO: Number.POSITIVE_INFINITY,
-  CEO: Number.POSITIVE_INFINITY,
-  FINANCE: 0,
-  ADMIN: 0,
-};
-
-/** Human label for a position, used in the interface and in notification wording. */
 export const ROLE_LABEL: Record<Role, string> = {
   REQUESTER: "Requester",
+  APPROVER: "Approver",
+  FINANCE_REVIEWER: "Finance Reviewer",
+  FINANCE_ADMIN: "Finance Administrator",
+  VIEW_ONLY: "View Only",
+};
+
+/** The signing ladder. Only meaningful for an Approver; everyone else carries no tier. */
+export type Tier = "MANAGER" | "DIRECTOR" | "SENIOR_DIRECTOR" | "CHIEF" | "CFO" | "CEO";
+
+export const TIERS: Tier[] = ["MANAGER", "DIRECTOR", "SENIOR_DIRECTOR", "CHIEF", "CFO", "CEO"];
+
+export const TIER_LABEL: Record<Tier, string> = {
   MANAGER: "Manager",
   DIRECTOR: "Director",
   SENIOR_DIRECTOR: "Senior Director",
   CHIEF: "Chief",
   CFO: "CFO",
   CEO: "CEO",
-  FINANCE: "Finance",
-  ADMIN: "Administrator",
 };
 
-export const approvalLimit = (role: Role) => APPROVAL_LIMIT[role] ?? 0;
+const TIER_LIMIT: Record<Tier, number> = {
+  MANAGER: 5000,
+  DIRECTOR: 15000,
+  SENIOR_DIRECTOR: 25000,
+  CHIEF: 75000,
+  CFO: Number.POSITIVE_INFINITY,
+  CEO: Number.POSITIVE_INFINITY,
+};
 
-/** Anyone who can sign off on spending, at any level. */
-export const isApprover = (role: Role) => approvalLimit(role) > 0;
+export const tierLimit = (tier: Tier | undefined) => (tier ? TIER_LIMIT[tier] : 0);
 
-/** Anyone who administers the system: the whole register, exports, and role assignment. */
-export const isAdmin = (role: Role) => role === "FINANCE" || role === "ADMIN";
-
-/** Whether this position may authorise this amount. */
-export const canApprove = (role: Role, amount: number) =>
-  isApprover(role) && Number.isFinite(amount) && amount > 0 && amount <= approvalLimit(role);
+/** The lowest tier that may authorise this amount. */
+export function tierForAmount(amount: number): Tier {
+  if (!Number.isFinite(amount) || amount <= 0) return "MANAGER";
+  return TIERS.find(tier => amount <= TIER_LIMIT[tier]) || "CEO";
+}
 
 /**
- * Roles stored before the ladder existed read as "APPROVER". Director is the closest equivalent: it is the
- * tier the original single approver was routed requests at.
+ * The tier immediately above this one.
+ *
+ * Used when an Approver submits their own request: it escalates past them, so nobody is ever both the
+ * author and a candidate signer on the same record. CEO is the top, so a CEO's own request stays there and
+ * is caught instead by the rule that an approver cannot approve what they submitted.
  */
-export const normalizeRole = (value: unknown): Role => {
-  const role = String(value || "");
-  if (role === "APPROVER") return "DIRECTOR";
-  return (ROLES as string[]).includes(role) ? (role as Role) : "REQUESTER";
+export const nextTierAbove = (tier: Tier): Tier => TIERS[Math.min(TIERS.indexOf(tier) + 1, TIERS.length - 1)];
+
+// ---- capabilities ----------------------------------------------------------------------------------
+// Cumulative by design: an Approver and a Finance Reviewer are both requesters who can do more.
+
+/** Everyone except a read-only viewer may write their own requests. */
+export const canRequest = (role: Role) => role !== "VIEW_ONLY";
+export const isApprover = (role: Role) => role === "APPROVER";
+export const isFinance = (role: Role) => role === "FINANCE_REVIEWER" || role === "FINANCE_ADMIN";
+export const isAdmin = (role: Role) => role === "FINANCE_ADMIN";
+/** Read the whole organisation's submitted requests rather than only one's own. */
+export const seesRegister = (role: Role) => role !== "REQUESTER";
+
+// ---- reading forward from the previous model ---------------------------------------------------------
+// The ladder used to be the role itself, and there was one approval gate rather than two. Stores written
+// then are translated on read so an existing deployment keeps working.
+
+const LEGACY_ROLE_TO_TIER: Record<string, Tier> = {
+  MANAGER: "MANAGER", DIRECTOR: "DIRECTOR", SENIOR_DIRECTOR: "SENIOR_DIRECTOR",
+  CHIEF: "CHIEF", CFO: "CFO", CEO: "CEO", APPROVER: "DIRECTOR",
 };
 
-export type Status = "Draft" | "Awaiting Approval" | "Returned" | "Approved";
+export function normalizeRole(value: unknown): { role: Role; tier?: Tier } {
+  const raw = String(value || "");
+  if ((ROLES as string[]).includes(raw)) return { role: raw as Role };
+  if (LEGACY_ROLE_TO_TIER[raw]) return { role: "APPROVER", tier: LEGACY_ROLE_TO_TIER[raw] };
+  if (raw === "FINANCE") return { role: "FINANCE_ADMIN" };
+  if (raw === "ADMIN") return { role: "FINANCE_ADMIN" };
+  return { role: "REQUESTER" };
+}
+
+const LEGACY_STATUS: Record<string, Status> = {
+  "Awaiting Approval": "Pending Supervisor Approval",
+  Returned: "Needs Revision",
+};
+
+export const normalizeStatus = (value: unknown): Status => {
+  const raw = String(value || "");
+  return LEGACY_STATUS[raw] || ((["Draft", "Pending Supervisor Approval", "Pending Finance Review", "Needs Revision", "Approved"] as string[]).includes(raw) ? (raw as Status) : "Draft");
+};
+
+/**
+ * The lifecycle, as two gates rather than one.
+ *
+ * Gate 1 is the supervisor's signature; gate 2 is Finance's compliance review. A request only reaches
+ * Finance because an approver put it there, which is the whole point of the sequence: Finance checks the
+ * coding and the receipts on something that already has authority behind it, not on a proposal.
+ */
+export type Status =
+  | "Draft"
+  | "Pending Supervisor Approval"
+  | "Pending Finance Review"
+  | "Needs Revision"
+  | "Approved";
 
 /** Whoever is performing the operation. Structurally satisfied by a Session, so no import cycle. */
-export type Actor = { userId: string; email: string; name: string; role: Role };
+export type Actor = { userId: string; email: string; name: string; role: Role; tier?: Tier };
 
 export type StoredUser = {
   id: string;
@@ -106,6 +153,8 @@ export type StoredUser = {
   /** Where this person wants to be contacted, which is not always the address they sign in with. */
   contactEmail: string;
   role: Role;
+  /** Signing band. Only meaningful for an Approver; ignored for every other role. */
+  tier?: Tier;
   district: string;
   school: string;
   passwordHash: string;
@@ -203,10 +252,19 @@ export type StoredRequest = {
   /** Display name and immutable id of whoever approved, so the record survives a later rename. */
   approverName?: string;
   approverId?: string;
+  /** Gate 2: who cleared it for payment, and when the record became final. */
+  financeSigned?: boolean;
+  financeName?: string;
+  financeId?: string;
+  completedAt?: string;
+  /** The tier this request must reach, fixed at submission — including any escalation. */
+  requiredTier?: Tier;
   reviewNote?: string;
   /** Who sent it back. An approver tracks their own returns through to resolution. */
   returnedBy?: string;
   returnedByName?: string;
+  /** Which gate sent it back, so the requester knows whether it is an authority or a fiscal problem. */
+  returnedStage?: "supervisor" | "finance";
 };
 
 /** One entry in the account log: a profile rename or a position change, always keyed to the user id. */
@@ -280,9 +338,13 @@ async function readDatabase(): Promise<Database> {
       // so an older store keeps working instead of producing users with a role nothing recognises.
       users: (Array.isArray(parsed.users) ? parsed.users : []).map(user => {
         const names = splitName(user.name || "");
+        const resolved = normalizeRole(user.role);
         return {
           ...user,
-          role: normalizeRole(user.role),
+          role: resolved.role,
+          // "APPROVER" was also the old single approver role, which carried no tier of its own. An
+          // approver without a band would have an authority limit of zero, so one is defaulted here.
+          tier: user.tier || resolved.tier || (resolved.role === "APPROVER" ? "DIRECTOR" : undefined),
           firstName: user.firstName || names.firstName,
           lastName: user.lastName || names.lastName,
           contactEmail: user.contactEmail || user.email,
@@ -290,6 +352,7 @@ async function readDatabase(): Promise<Database> {
       }),
       requests: (Array.isArray(parsed.requests) ? parsed.requests : []).map(request => ({
         ...request,
+        status: normalizeStatus(request.status),
         // Records written before attachments existed have no array; readers should never have to guard.
         attachments: Array.isArray(request.attachments) ? request.attachments : [],
       })),
@@ -375,20 +438,21 @@ export function resetStoreCache(): void {
 // to Draft: a submitted PRF that needs work becomes Returned, which keeps the submission in its history
 // rather than erasing it.
 const TRANSITIONS: Record<Status, Status[]> = {
-  Draft: ["Awaiting Approval"],
-  Returned: ["Awaiting Approval"],
-  "Awaiting Approval": ["Approved", "Returned"],
+  Draft: ["Pending Supervisor Approval"],
+  "Needs Revision": ["Pending Supervisor Approval"],
+  "Pending Supervisor Approval": ["Pending Finance Review", "Needs Revision"],
+  "Pending Finance Review": ["Approved", "Needs Revision"],
   Approved: [],
 };
 
 export function assertTransition(from: Status, to: Status): void {
   if (!TRANSITIONS[from].includes(to)) {
-    throw new ConflictError(`A ${from} request cannot become ${to}`);
+    throw new ConflictError(`A request that is ${from} cannot become ${to}`);
   }
 }
 
-/** Statuses whose content the owner may still change. A Returned PRF is editable so it can be fixed. */
-const EDITABLE: Status[] = ["Draft", "Returned"];
+/** Statuses whose content the owner may still change. A returned PRF is editable so it can be fixed. */
+const EDITABLE: Status[] = ["Draft", "Needs Revision"];
 
 // ---- helpers ---------------------------------------------------------------------------------------
 
@@ -414,24 +478,36 @@ function nextPrfNumber(requests: StoredRequest[]): string {
 /**
  * Who may see a request.
  *
- * A draft is the requester's private working copy — an unfinished thought about money, with half-typed
- * vendors and placeholder amounts. Nobody else sees it, at any position, ever. That is the one rule here
- * with no exceptions.
+ * A draft is the author's private working copy — an unfinished thought about money, with half-typed
+ * vendors and placeholder amounts. Nobody else sees it, in any role, ever. That is the one rule here with
+ * no exceptions.
  *
- * Beyond that: an approver's queue is the work in front of them — everything awaiting review, everything
- * already approved, and the requests they personally sent back, so a return can be followed through to
- * resolution rather than disappearing. A return by a different approver belongs to that approver.
- *
- * Finance and administrators see every submitted request, because the register, the exports and the grant
- * reporting they answer for have to be complete. Drafts stay out of that too.
+ * Past that, each role sees the stage it is responsible for. An approver sees what is waiting at gate 1,
+ * plus the requests they personally signed or returned, so their own decisions stay trackable. A Finance
+ * Reviewer sees gate 2 and what has completed — never a request still waiting on a supervisor, because
+ * reviewing coding on something that might yet be rejected is wasted work and the sequence exists to
+ * prevent it. Administrators and read-only viewers see every submitted request, the first because they
+ * answer for the register and the second because that is the whole point of the role.
  */
 const visibleTo = (actor: Actor, request: StoredRequest) => {
   if (request.ownerId === actor.userId) return true;
   if (request.status === "Draft") return false;
-  if (isAdmin(actor.role)) return true;
-  if (!isApprover(actor.role)) return false;
-  if (request.status === "Returned") return request.returnedBy === actor.userId;
-  return true;
+  if (isAdmin(actor.role) || actor.role === "VIEW_ONLY") return true;
+
+  if (actor.role === "FINANCE_REVIEWER") {
+    if (request.status === "Pending Finance Review" || request.status === "Approved") return true;
+    // A request they themselves returned stays with them until it comes back round.
+    return request.status === "Needs Revision" && request.returnedBy === actor.userId;
+  }
+
+  if (isApprover(actor.role)) {
+    if (request.status === "Pending Supervisor Approval") return true;
+    if (request.status === "Needs Revision") return request.returnedBy === actor.userId;
+    // Once signed, it belongs to Finance — but the approver who signed it can still follow it.
+    return request.approverId === actor.userId;
+  }
+
+  return false;
 };
 
 /**
@@ -580,9 +656,14 @@ const notification = (
   if (database.notifications.length > 2000) database.notifications = database.notifications.slice(-2000);
 };
 
-/** Everyone whose position could sign off this amount — the people the request is actually waiting on. */
-const approversFor = (database: Database, amount: number) =>
-  database.users.filter(user => canApprove(user.role, amount));
+/** The approvers a request is actually waiting on: enough authority, and not its author. */
+const approversFor = (database: Database, request: StoredRequest) =>
+  database.users.filter(
+    user =>
+      isApprover(user.role) &&
+      user.id !== request.ownerId &&
+      tierLimit(user.tier) >= tierLimit(request.requiredTier || tierForAmount(request.amount)),
+  );
 
 /** The account log. Administrators only — it names who changed whose position, and when. */
 export async function listAccountLog(actor: Actor): Promise<AccountEvent[]> {
@@ -628,9 +709,9 @@ export async function getRequest(actor: Actor, id: string): Promise<StoredReques
 }
 
 export async function createDraft(actor: Actor, input: DraftInput): Promise<StoredRequest> {
-  // Creating a PRF is the requester's job. An approver who also needs to purchase something signs in with
-  // their own requester account rather than being both author and authoriser on one record.
-  if (actor.role !== "REQUESTER") throw new ForbiddenError("Only requesters can create purchase requests");
+  // Everyone who works here buys things, so every role except a read-only viewer can raise a request. An
+  // approver's own request is escalated past them at submission, and they still cannot approve it.
+  if (!canRequest(actor.role)) throw new ForbiddenError("A view-only account cannot create purchase requests");
   return transaction(database => {
     const id = nextPrfNumber(database.requests);
     const stamp = now();
@@ -686,7 +767,7 @@ export async function submitRequest(actor: Actor, id: string, signature: string)
   return transaction(database => {
     const request = locate(database, actor, id);
     if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can submit this PRF");
-    assertTransition(request.status, "Awaiting Approval");
+    assertTransition(request.status, "Pending Supervisor Approval");
     // Submission is where a draft becomes a financial document, so the fields an approver reads to make a
     // decision stop being optional here. A draft is allowed to be incomplete; a submitted PRF is not.
     if (!signature) throw new FieldError("Signature", "An electronic signature is required to submit");
@@ -697,111 +778,236 @@ export async function submitRequest(actor: Actor, id: string, signature: string)
     if (!request.lineItems.length) throw new FieldError("Line items", "Add at least one line item before submitting");
 
     const stamp = now();
-    request.status = "Awaiting Approval";
+    request.status = "Pending Supervisor Approval";
     request.submittedAt = stamp;
     request.updatedAt = stamp;
     request.requesterSigned = true;
     request.requesterSignature = signature;
+    // An approver's own request escalates past their own tier, so they are never a candidate signer on it.
+    // The rule that they cannot approve their own submission still holds; this stops the request from
+    // sitting in their queue looking actionable in the first place.
+    const byAmount = tierForAmount(request.amount);
+    const required =
+      isApprover(actor.role) && actor.tier && tierLimit(actor.tier) >= tierLimit(byAmount)
+        ? nextTierAbove(actor.tier)
+        : byAmount;
+    request.requiredTier = required;
     request.approvals = [
       { role: "Requester", name: actor.name, status: "Signed", time: stamp },
-      { role: routeFor(request.amount), name: "Unassigned", status: "Pending" },
+      { role: TIER_LABEL[required], name: "Unassigned", status: "Pending" },
     ];
     request.audit.push(auditEntry(actor, "Submitted and electronically signed", `Signed as "${signature}"`));
     request.audit.push({
-      ...auditEntry(actor, "Routed for approval", `${routeFor(request.amount)} authority required`),
+      ...auditEntry(actor, "Routed for approval", `${TIER_LABEL[required]} authority required`),
       actorId: "system",
       actorName: "System",
     });
 
-    for (const approver of approversFor(database, request.amount)) {
+    for (const approver of approversFor(database, request)) {
       notification(database, {
         kind: "submitted",
         requestId: request.id,
         userId: approver.id,
         title: `${request.id} needs your review`,
-        body: `${actor.name} submitted ${moneyText(request.amount)} for ${request.school || request.district}. Routes to ${routeFor(request.amount)}.`,
+        body: `${actor.name} submitted ${moneyText(request.amount)} for ${request.school || request.district}. Routes to ${TIER_LABEL[required]}.`,
       });
     }
     return request;
   });
 }
 
+/**
+ * Gate 1 — the supervisor's decision.
+ *
+ * Approving does not finish a request; it hands it to Finance. That is the sequence the whole refactor
+ * exists for: Finance reviews coding, receipts and policy on something that already carries authority,
+ * rather than on a proposal that might still be sent back.
+ */
 export async function decideRequest(actor: Actor, id: string, decision: Decision): Promise<StoredRequest> {
-  if (!isApprover(actor.role)) throw new ForbiddenError("Only approvers can review purchase requests");
+  if (!isApprover(actor.role)) throw new ForbiddenError("Only approvers can sign off purchase requests");
   return transaction(database => {
     const request = locate(database, actor, id);
+    // Finance's gate is a different endpoint; an approver acting on a request already past them would be
+    // signing something twice.
+    if (request.status === "Pending Finance Review") {
+      throw new ForbiddenError("This request has already been approved and is with Finance");
+    }
     if (request.ownerId === actor.userId) {
       throw new ForbiddenError("You cannot approve a request you submitted");
     }
-    const target: Status = decision.action === "approve" ? "Approved" : "Returned";
+    const target: Status = decision.action === "approve" ? "Pending Finance Review" : "Needs Revision";
     assertTransition(request.status, target);
-    // Authority is checked against the amount, not merely against being an approver: a Manager cannot sign
-    // off a $50,000 request just because the queue showed it to them. Sending back is open to any approver —
-    // spotting a problem does not require the authority to have approved it.
-    if (decision.action === "approve" && !canApprove(actor.role, request.amount)) {
-      throw new ForbiddenError(
-        `${ROLE_LABEL[actor.role]} authority covers up to ${approvalLimit(actor.role) === Number.POSITIVE_INFINITY ? "any amount" : `$${approvalLimit(actor.role).toLocaleString()}`}. This request needs ${routeFor(request.amount)} approval.`,
-      );
-    }
-    if (decision.action === "approve" && !request.requesterSigned) {
-      throw new ConflictError("This PRF has no requester signature and cannot be approved");
+
+    if (decision.action === "approve") {
+      // Authority is checked against the amount, not merely against being an approver: a Manager cannot
+      // sign off a $50,000 request just because the queue showed it to them.
+      if (!request.requesterSigned) {
+        throw new ConflictError("This PRF has no requester signature and cannot be approved");
+      }
+      if (!decision.signature) throw new FieldError("Signature", "An electronic signature is required to approve");
+      const needed = request.requiredTier || tierForAmount(request.amount);
+      if (tierLimit(actor.tier) < tierLimit(needed)) {
+        const held = tierLimit(actor.tier);
+        throw new ForbiddenError(
+          `${actor.tier ? TIER_LABEL[actor.tier] : "This"} authority covers up to ${held === Number.POSITIVE_INFINITY ? "any amount" : `$${held.toLocaleString()}`}. This request needs ${TIER_LABEL[needed]} approval.`,
+        );
+      }
     }
     // Mandatory feedback on a send-back. A PRF bounced without a reason leaves the requester guessing.
     if (decision.action === "reject" && !decision.comment) {
       throw new FieldError("Comment", "A comment is required when sending a request back");
     }
-    if (decision.action === "approve" && !decision.signature) {
-      throw new FieldError("Signature", "An electronic signature is required to approve");
-    }
 
     const stamp = now();
     request.status = target;
     request.updatedAt = stamp;
+
     if (decision.action === "approve") {
-      request.approvedAt = stamp;
       request.approverSigned = true;
       request.approverSignature = decision.signature;
       // Both, deliberately: the name is what a reader of the PRF needs, and the id is what survives the
       // approver later changing their name. An audit that kept only the name would go ambiguous.
       request.approverName = actor.name;
       request.approverId = actor.userId;
-    } else {
-      request.reviewNote = decision.comment;
-      request.returnedBy = actor.userId;
-      request.returnedByName = actor.name;
-    }
-    request.approvals = request.approvals.map((approval, index) =>
-      index === request.approvals.length - 1
-        ? { ...approval, name: actor.name, status: decision.action === "approve" ? "Signed" : "Returned", time: stamp }
-        : approval,
-    );
-    request.audit.push(
-      auditEntry(
-        actor,
-        decision.action === "approve" ? "Approved and electronically signed" : "Returned for changes",
-        decision.comment || undefined,
-      ),
-    );
-
-    const approved = decision.action === "approve";
-    const title = approved ? `${request.id} was approved` : `${request.id} needs changes`;
-    const body = approved
-      ? `${actor.name} approved and signed ${moneyText(request.amount)} for ${request.school || request.district}.`
-      : `${actor.name} sent it back: ${decision.comment}`;
-    notification(database, { kind: approved ? "approved" : "returned", requestId: request.id, userId: request.ownerId, title, body });
-    // The copied-in colleague hears the outcome too. They may have no account, so this one is addressed
-    // to the email itself and is picked up whenever that address signs in.
-    if (request.copyEmail) {
-      notification(database, {
-        kind: approved ? "approved" : "returned",
-        requestId: request.id,
-        email: request.copyEmail,
-        title,
-        body: `${body} You were copied in by ${request.requester}.`,
+      request.approvedAt = stamp;
+      request.approvals = [
+        ...request.approvals.map((approval, index) =>
+          index === request.approvals.length - 1
+            ? { ...approval, name: actor.name, status: "Signed", time: stamp }
+            : approval,
+        ),
+        { role: "Finance", name: "Unassigned", status: "Pending" },
+      ];
+      request.audit.push(auditEntry(actor, "Approved and electronically signed", `Gate 1 cleared by ${TIER_LABEL[actor.tier || "MANAGER"]}`));
+      request.audit.push({
+        ...auditEntry(actor, "Sent to Finance review", "Gate 2: coding, receipts and policy"),
+        actorId: "system",
+        actorName: "System",
       });
+
+      for (const reviewer of database.users.filter(user => isFinance(user.role))) {
+        notification(database, {
+          kind: "submitted",
+          requestId: request.id,
+          userId: reviewer.id,
+          title: `${request.id} is ready for Finance review`,
+          body: `${actor.name} approved ${moneyText(request.amount)} for ${request.school || request.district}. Check coding, receipts and policy.`,
+        });
+      }
+      notification(database, {
+        kind: "approved",
+        requestId: request.id,
+        userId: request.ownerId,
+        title: `${request.id} cleared supervisor approval`,
+        body: `${actor.name} signed it. It is now with Finance for the final review.`,
+      });
+    } else {
+      returnToRequester(database, request, actor, decision.comment, "supervisor");
     }
     return request;
   });
+}
+
+/**
+ * Gate 2 — Finance's compliance review.
+ *
+ * Reachable only from "Pending Finance Review", which only an approver's signature produces. A Finance
+ * Reviewer who tries to act on a request still sitting at gate 1 is refused: the locked stage is the
+ * mechanism, not a hidden button.
+ */
+export async function financeReview(actor: Actor, id: string, decision: Decision): Promise<StoredRequest> {
+  if (!isFinance(actor.role)) throw new ForbiddenError("Only Finance can complete the compliance review");
+  return transaction(database => {
+    const request = locate(database, actor, id);
+    if (request.status === "Pending Supervisor Approval") {
+      throw new ForbiddenError("This request is still awaiting supervisor approval and is not open to Finance yet");
+    }
+    const target: Status = decision.action === "approve" ? "Approved" : "Needs Revision";
+    assertTransition(request.status, target);
+
+    if (decision.action === "approve" && !decision.signature) {
+      throw new FieldError("Signature", "An electronic signature is required to clear a request for payment");
+    }
+    if (decision.action === "reject" && !decision.comment) {
+      throw new FieldError("Comment", "A compliance note is required when returning a request");
+    }
+
+    const stamp = now();
+    request.status = target;
+    request.updatedAt = stamp;
+
+    if (decision.action === "approve") {
+      request.financeSigned = true;
+      request.financeName = actor.name;
+      request.financeId = actor.userId;
+      request.completedAt = stamp;
+      request.approvals = request.approvals.map((approval, index) =>
+        index === request.approvals.length - 1
+          ? { ...approval, name: actor.name, status: "Cleared for payment", time: stamp }
+          : approval,
+      );
+      request.audit.push(auditEntry(actor, "Cleared for payment by Finance", decision.comment || "Gate 2 cleared"));
+
+      const title = `${request.id} is approved and complete`;
+      const body = `${actor.name} cleared ${moneyText(request.amount)} for payment. The record is now final.`;
+      notification(database, { kind: "approved", requestId: request.id, userId: request.ownerId, title, body });
+      if (request.copyEmail) {
+        notification(database, {
+          kind: "approved", requestId: request.id, email: request.copyEmail, title,
+          body: `${body} You were copied in by ${request.requester}.`,
+        });
+      }
+    } else {
+      returnToRequester(database, request, actor, decision.comment, "finance");
+    }
+    return request;
+  });
+}
+
+/**
+ * Sending a request back, from either gate.
+ *
+ * The stage it came from is recorded on the entry, because "Finance returned this over the funding code"
+ * and "your manager returned this over the justification" send the requester to different parts of the
+ * form.
+ */
+function returnToRequester(
+  database: Database,
+  request: StoredRequest,
+  actor: Actor,
+  comment: string,
+  stage: "supervisor" | "finance",
+): void {
+  const stamp = now();
+  request.reviewNote = comment;
+  request.returnedBy = actor.userId;
+  request.returnedByName = actor.name;
+  request.returnedStage = stage;
+  request.approvals = request.approvals.map((approval, index) =>
+    index === request.approvals.length - 1
+      ? { ...approval, name: actor.name, status: "Returned", time: stamp }
+      : approval,
+  );
+  request.audit.push(
+    auditEntry(
+      actor,
+      stage === "finance" ? "Returned by Finance review" : "Returned for changes",
+      stage === "finance" ? `Fiscal issue: ${comment}` : comment,
+    ),
+  );
+
+  const title = `${request.id} needs changes`;
+  const body =
+    stage === "finance"
+      ? `${actor.name} returned it from Finance review: ${comment}`
+      : `${actor.name} sent it back: ${comment}`;
+  notification(database, { kind: "returned", requestId: request.id, userId: request.ownerId, title, body });
+  if (request.copyEmail) {
+    notification(database, {
+      kind: "returned", requestId: request.id, email: request.copyEmail, title,
+      body: `${body} You were copied in by ${request.requester}.`,
+    });
+  }
 }
 
 // ---- attachments -----------------------------------------------------------------------------------
