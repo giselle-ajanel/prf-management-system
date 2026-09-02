@@ -44,7 +44,10 @@ Two portals, decided by the account rather than chosen at sign-in:
 
 Sessions are signed, http-only cookies. They end after **one hour of inactivity** and after twelve hours
 regardless; both limits are enforced on the server on every request, with the browser's countdown existing
-only so an idle signer sees an explanation rather than a failure. Signing out revokes the session id
+only so an idle signer sees an explanation rather than a failure. Inactivity means the person, not the
+application: the editor's periodic autosave marks itself as background when nobody has touched the keyboard
+since the last one, so it stores its content without resetting the clock. A PRF left open on an unattended
+machine still times out. Signing out revokes the session id
 server-side — a copied cookie stops working — and clears every local draft, editor buffer and mirrored copy
 this app has written.
 

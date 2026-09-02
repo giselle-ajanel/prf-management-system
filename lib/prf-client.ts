@@ -77,15 +77,24 @@ export const setCsrfToken = (token: string) => {
   csrfToken = token || "";
 };
 
-async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const mutation = (init.method || "GET") !== "GET";
+/**
+ * `background: true` marks a request the application made on its own — the editor's periodic autosave with
+ * nobody at the keyboard. The server serves it normally but does not treat it as activity, so housekeeping
+ * cannot keep an unattended session alive.
+ */
+type SendOptions = RequestInit & { background?: boolean };
+
+async function send<T>(path: string, init: SendOptions = {}): Promise<T> {
+  const { background, ...request } = init;
+  const mutation = (request.method || "GET") !== "GET";
   const response = await fetch(path, {
-    ...init,
+    ...request,
     credentials: "same-origin",
     headers: {
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(request.body ? { "Content-Type": "application/json" } : {}),
       ...(mutation && csrfToken ? { "x-csrf-token": csrfToken } : {}),
-      ...(init.headers || {}),
+      ...(background ? { "x-prf-background": "1" } : {}),
+      ...(request.headers || {}),
     },
   });
 
@@ -129,14 +138,15 @@ export async function logout(): Promise<void> {
 
 export const fetchRequests = () => send<{ requests: WireRequest[] }>("/api/requests").then(payload => payload.requests);
 
-export const createRequest = (draft: unknown) =>
-  send<{ request: WireRequest }>("/api/requests", { method: "POST", body: JSON.stringify(draft) }).then(p => p.request);
+export const createRequest = (draft: unknown, background = false) =>
+  send<{ request: WireRequest }>("/api/requests", { method: "POST", body: JSON.stringify(draft), background }).then(p => p.request);
 
 /** PUT, not PATCH: the payload is the complete set of editable fields and replaces what is stored. */
-export const updateRequest = (id: string, draft: unknown) =>
+export const updateRequest = (id: string, draft: unknown, background = false) =>
   send<{ request: WireRequest }>(`/api/requests/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify(draft),
+    background,
   }).then(p => p.request);
 
 export const deleteRequest = (id: string) =>

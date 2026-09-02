@@ -353,6 +353,33 @@ await check("a tampered payload or signature is refused", async () => {
   assert.equal((await S.readSessionToken(undefined)).ok, false);
 });
 
+await check("a background request is served without extending the idle window", async () => {
+  const started = S.startSession(user);
+  const earlier = { ...started.session, lastSeen: Date.now() - 30 * 60 * 1000 };
+  const token = S.encodeSession(earlier);
+
+  // A background save is honoured, but leaves lastSeen exactly where it was: half an hour in the past.
+  const quiet = await S.readSessionToken(token, { slide: false });
+  assert.equal(quiet.ok, true);
+  assert.equal(quiet.session.lastSeen, earlier.lastSeen);
+  assert.equal(quiet.token, token);
+
+  // A user-driven request moves it to now, which is what keeps an active signer signed in.
+  const active = await S.readSessionToken(token);
+  assert.equal(active.ok, true);
+  assert.ok(active.session.lastSeen > earlier.lastSeen);
+});
+
+await check("background requests cannot keep an abandoned session alive", async () => {
+  const started = S.startSession(user);
+  // An editor left open on an empty desk: the last real interaction was over an hour ago, and only
+  // autosaves have happened since. The session is over regardless of how many of those there were.
+  const abandoned = { ...started.session, lastSeen: Date.now() - S.IDLE_TIMEOUT_MS - 1000 };
+  const result = await S.readSessionToken(S.encodeSession(abandoned), { slide: false });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "idle");
+});
+
 await check("a session idle for more than an hour is refused", async () => {
   const started = S.startSession(user);
   const stale = { ...started.session, lastSeen: Date.now() - S.IDLE_TIMEOUT_MS - 1000 };

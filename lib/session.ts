@@ -142,12 +142,25 @@ export type SessionCheck =
   | { ok: false; reason: "none" | "invalid" | "idle" | "expired" | "revoked" };
 
 /**
- * Validates the cookie and slides the idle window forward.
+ * Validates the cookie and, for a user-driven request, slides the idle window forward.
  *
  * The returned token carries a refreshed lastSeen, which the caller writes back on the response — so
  * activity extends the session and inactivity ends it, without a server-side session table.
+ *
+ * `slide: false` validates without extending. That distinction is what makes the idle rule mean anything
+ * while a PRF editor is open: the editor autosaves every 30 seconds whether or not anyone is at the
+ * keyboard, and counting those saves as activity would keep an unattended browser signed in until the
+ * 12-hour absolute cap. Background saves still write their content — they simply stop the clock from
+ * being reset by the application's own housekeeping.
+ *
+ * The client decides which of its requests were user-driven, and a modified client could lie. That is
+ * accepted: whoever can lie about it already holds a valid session and could keep it alive by making
+ * requests directly. The rule protects an unattended browser, not against the person holding the session.
  */
-export async function readSessionToken(token: string | undefined): Promise<SessionCheck> {
+export async function readSessionToken(
+  token: string | undefined,
+  options: { slide?: boolean } = {},
+): Promise<SessionCheck> {
   if (!token) return { ok: false, reason: "none" };
   const session = decodeSession(token);
   if (!session) return { ok: false, reason: "invalid" };
@@ -157,6 +170,7 @@ export async function readSessionToken(token: string | undefined): Promise<Sessi
   if (stamp - session.issuedAt > ABSOLUTE_TIMEOUT_MS) return { ok: false, reason: "expired" };
   if (await isRevoked(session.sid)) return { ok: false, reason: "revoked" };
 
+  if (options.slide === false) return { ok: true, session, token: encodeSession(session) };
   const refreshed: Session = { ...session, lastSeen: stamp };
   return { ok: true, session: refreshed, token: encodeSession(refreshed) };
 }

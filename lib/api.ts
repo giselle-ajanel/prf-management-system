@@ -104,7 +104,11 @@ export function errorResponse(error: unknown, route: string): NextResponse {
 async function resolveSession(request: NextRequest): Promise<
   { ok: true; session: Session; token: string } | { ok: false; status: number; reason: string }
 > {
-  const check = await readSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  // The editor's periodic autosave marks itself as background when nobody has touched the keyboard since
+  // the last one. Those requests are served normally but do not reset the idle clock, so leaving a PRF
+  // open on an unattended machine no longer holds the session open indefinitely.
+  const background = request.headers.get("x-prf-background") === "1";
+  const check = await readSessionToken(request.cookies.get(SESSION_COOKIE)?.value, { slide: !background });
   if (check.ok) return check;
 
   const identity = await optionalIdentity();

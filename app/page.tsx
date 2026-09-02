@@ -189,7 +189,7 @@ export default function PurchaseRequestHub() {
     const timer = setInterval(()=>{ if(Date.now()-lastActivity.current>=3600000){
       // The same flush as sign-out: the session is about to end, and the dialog it raises leads to the
       // login screen, which clears local storage. The server copy is the one that has to be current.
-      if(creating&&hasContent(formRef.current)) void saveNativeDraft(true);
+      if(creating&&hasContent(formRef.current)) void saveNativeDraft(true,true);
       safeStorage.set("prf-active-draft-v1",JSON.stringify(formRef.current)); void saveIndexedDraft(formRef.current,user?.email||"");
       setSessionExpired(true) } },60000);
     return()=>{ events.forEach(event=>window.removeEventListener(event,active)); clearInterval(timer) };
@@ -223,9 +223,15 @@ export default function PurchaseRequestHub() {
     return()=>{active=false};
   },[creating]);
 
-  const saveNativeDraft = async (silent=false) => {
+  /**
+   * Writes the draft to the server.
+   *
+   * `background` marks a save the app made on its own, with nobody at the keyboard. It still stores the
+   * content; it just does not count as activity, so the autosave cannot hold an idle session open.
+   */
+  const saveNativeDraft = async (silent=false, background=false) => {
     const snapshot=formRef.current; const payload=draftPayload(snapshot); const activeId=editingIdRef.current;
-    const saved = activeId ? await guard(()=>updateRequest(activeId,payload)) : await guard(()=>createRequest(payload));
+    const saved = activeId ? await guard(()=>updateRequest(activeId,payload,background)) : await guard(()=>createRequest(payload,background));
     if(!saved) return null;
     const row = toViewRequest(saved);
     setRequests(previous=>previous.some(entry=>entry.id===row.id)?previous.map(entry=>entry.id===row.id?row:entry):[row,...previous]);
@@ -241,7 +247,11 @@ export default function PurchaseRequestHub() {
   useEffect(()=>{ if(!creating) return;
     const persist=()=>{ const snapshot=formRef.current; safeStorage.set("prf-active-draft-v1",JSON.stringify(snapshot)); safeStorage.set("prf-active-draft-saved-at",new Date().toISOString()); void saveIndexedDraft(snapshot,user?.email||""); if(editingIdRef.current) safeStorage.set(`prf-editor-${editingIdRef.current}`,JSON.stringify(snapshot)); setLastSaved(`Saved ${new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`) };
     persist();
-    const timer=setInterval(()=>{ persist(); if(hasContent(formRef.current)) void saveNativeDraft(true) },30000);
+    const timer=setInterval(()=>{ persist();
+      // Typing in the last minute makes this save user-driven, so an active signer's session keeps
+      // sliding; a form left open on an empty desk saves without extending anything.
+      const untouched=Date.now()-lastActivity.current>=60000;
+      if(hasContent(formRef.current)) void saveNativeDraft(true,untouched) },30000);
     const unload=(event:BeforeUnloadEvent)=>{ persist(); if(dirtyRef.current){event.preventDefault();event.returnValue=""} };
     window.addEventListener("beforeunload",unload);
     return()=>{ clearInterval(timer); window.removeEventListener("beforeunload",unload); persist() };

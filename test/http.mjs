@@ -78,6 +78,13 @@ async function call(session, method, url, body, extraHeaders = {}) {
   return { status: response.status, body: payload, headers: response.headers };
 }
 
+/** Reads the lastSeen stamp out of a session cookie, to see whether a request moved the idle clock. */
+const lastSeenOf = session => {
+  const token = session.cookies.get("prf_session") || "";
+  const payload = token.split(".")[0].replaceAll("-", "+").replaceAll("_", "/");
+  return JSON.parse(Buffer.from(payload, "base64").toString("utf8")).lastSeen;
+};
+
 // ---- wait for the dev server -----------------------------------------------------------------------
 const ready = async () => {
   for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -263,6 +270,29 @@ await check("the server ignores client-supplied status, owner and audit fields",
   assert.equal(response.body.request.status, "Draft");
   assert.equal(response.body.request.approverSigned, false);
   assert.ok(!response.body.request.audit.some(entry => entry.action === "forged entry"));
+});
+
+await check("an autosave marked background does not reset the idle clock", async () => {
+  const before = lastSeenOf(alice);
+  await new Promise(resolve => setTimeout(resolve, 1100));
+
+  // A background save still stores its content...
+  const saved = await call(alice, "PUT", `/api/requests/${alicePrf}`, {
+    vendor: "Northstar Learning",
+    description: "24 robotics kits for the Grade 9 after-school STEM lab",
+    district: "District 4",
+    school: "Central High School",
+    siteCode: "7704",
+    fundingCode: "88STEM",
+    lineItems: [{ description: "Classroom robotics kit", quantity: 24, unitPrice: 325 }],
+  }, { "x-prf-background": "1" });
+  assert.equal(saved.status, 200);
+  assert.equal(lastSeenOf(alice), before, "a background save moved the idle clock");
+
+  // ...while an ordinary request from the same session does move it forward.
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  await call(alice, "GET", "/api/requests");
+  assert.ok(lastSeenOf(alice) > before, "a user-driven request failed to move the idle clock");
 });
 
 // ---- isolation between requesters ------------------------------------------------------------------
