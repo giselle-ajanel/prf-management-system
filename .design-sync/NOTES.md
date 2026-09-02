@@ -28,6 +28,15 @@ Running notes from the design-system extraction and the FY27 feature work.
 
 ## Architecture
 
+- **Server layer (added with authentication).** `lib/store.ts` is the data-access layer and the only place
+  authorisation is decided; routes in `app/api/` are thin and never make a permission judgement of their
+  own. `lib/api.ts` wraps every authenticated route with session, role, CSRF, rate limit and error mapping,
+  so a new route cannot forget one. `lib/session.ts` owns the signed cookie and the idle rule.
+- The approval ladder and the payment/expense vocabularies exist on both sides of the wire — the server
+  cannot import the client barrel — and `test/authz.mjs` asserts the copies stay identical.
+- Updating a draft is `PUT`, not `PATCH`: the body is the complete set of editable fields. An earlier
+  PATCH-shaped handler silently blanked any field the body omitted, which is how the description of a
+  submitted PRF went missing in testing.
 - `app/page.tsx` owns state and persistence only. Every component, type and formatting helper lives in
   `design-system/src/` and is imported through the `@ds` path alias. `app/globals.css` is a single import
   of the design system's style entry point.
@@ -38,7 +47,11 @@ Running notes from the design-system extraction and the FY27 feature work.
 
 ## Testing
 
-`npm run test:ds` runs six suites. Parity suites pin markup to the pre-extraction commit `84fee05`;
+`npm test` runs all three groups: `test:ds` (design system), `test:server` (authorisation, sessions, input
+handling — no server needed), and `test:http` (the same rules over HTTP against a dev server on a throwaway
+store, so it never touches `.secure-data/`).
+
+`npm run test:ds` runs seven suites. Parity suites pin markup to the pre-extraction commit `84fee05`;
 components that intentionally move on graduate into `snapshot.mjs`.
 
 - `utils-parity` — helpers vs originals over an edge-case matrix
@@ -46,12 +59,27 @@ components that intentionally move on graduate into `snapshot.mjs`.
 - `snapshot` — components that have deliberately changed, plus the stylesheet hash
 - `options` — combobox option building; the menu only renders while open, so snapshots cannot see it
 - `slice-parity` — components built from inline JSX vs the app's own output
-- `app-parity` — the whole page, three view states
+- `page-snapshot` — the whole page in six states: the two gate states plus each role's own views. The
+  requester snapshot is additionally asserted to contain none of the approver's surfaces, as a property
+  rather than a recording.
 
 Snapshot workflow: `UPDATE=1 node design-system/test/snapshot.mjs`, then review the diff before committing.
 
 ## Out of reach in this architecture
 
-Email and push notifications need a server, durable storage and an auth boundary; this prototype has
-browser-local persistence and demo identity. The notification work builds the in-app bell plus a typed
-delivery seam so wiring a real transport later is an isolated change.
+Email and push notifications still need a real transport; the in-app bell and the typed delivery seam are
+in place so wiring one later is an isolated change.
+
+The file store serialises writes through an in-process queue and commits by atomic rename. That is correct
+for one Node process and wrong for several — the Prisma implementation of the same interface is where
+multi-instance deployment starts.
+
+## Decisions worth remembering
+
+- **Roles are two, not nine.** `prisma/schema.prisma` models the full ladder (MANAGER … CEO, FINANCE,
+  ADMIN); the running system collapses it to REQUESTER and APPROVER, which is what the two portals need.
+  The dollar thresholds still name the authority level on the PRF, so widening this later is additive.
+- **404 rather than 403** for a PRF the caller may not see, so the response cannot be used to discover which
+  PRF numbers exist.
+- **Demo passwords are generated, never committed.** They land in `.secure-data/seed-credentials.txt` beside
+  the store, so pointing `PRF_STORE_PATH` at a test directory cannot overwrite a running instance's copy.

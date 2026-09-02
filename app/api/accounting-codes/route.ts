@@ -1,25 +1,19 @@
 import { NextRequest,NextResponse } from "next/server";
 import { requireIdentity } from "@/lib/auth";
 import { codesForAllSites,codesForSite } from "@/lib/accounting";
+import { overLimit } from "@/lib/ratelimit";
 
 export const runtime="nodejs";
 
-// Fixed-window limiter keyed on identity. The workbook is parsed once and cached, so this exists to stop a
-// runaway client loop (a broken auto-save, a stuck retry) from pinning the process, not to price the read.
-const WINDOW_MS=60_000, MAX_PER_WINDOW=60;
-const hits=new Map<string,{count:number;resetAt:number}>();
-function overLimit(key:string){
-  const now=Date.now(); const entry=hits.get(key);
-  if(!entry||now>=entry.resetAt){hits.set(key,{count:1,resetAt:now+WINDOW_MS});return null}
-  entry.count+=1;
-  if(hits.size>5000) for(const [k,v] of hits) if(now>=v.resetAt) hits.delete(k);
-  return entry.count>MAX_PER_WINDOW?Math.ceil((entry.resetAt-now)/1000):null;
-}
+// The limiter this route used to define inline now lives in lib/ratelimit.ts, where the mutation routes use
+// it too. The budget is unchanged: the workbook is parsed once and cached, so this exists to stop a runaway
+// client loop (a broken auto-save, a stuck retry) from pinning the process, not to price the read.
+const ACCOUNTING_BUDGET={windowMs:60_000,max:60};
 
 export async function GET(request:NextRequest){
   try{
     const identity=await requireIdentity();
-    const retryAfter=overLimit(identity.email.toLowerCase());
+    const retryAfter=overLimit(`accounting:${identity.email.toLowerCase()}`,ACCOUNTING_BUDGET);
     if(retryAfter) return NextResponse.json({error:"Too many requests"},{status:429,headers:{"Retry-After":String(retryAfter)}});
     // Site coding is master data, not a permission boundary: unless the caller asks for one specific site,
     // return every active site so the PRF dropdown is never scoped to the requester's own department.

@@ -9,7 +9,10 @@
     "lint": "next lint",
     "build:share": "node scripts/build-standalone.mjs",
     "build:ds": "node design-system/build.mjs",
-    "test:ds": "node design-system/test/utils-parity.mjs && node design-system/test/render-parity.mjs && node design-system/test/snapshot.mjs && node design-system/test/options.mjs && node design-system/test/export-notify.mjs && node design-system/test/slice-parity.mjs && node design-system/test/page-snapshot.mjs"
+    "test": "npm run test:ds && npm run test:server && npm run test:http",
+    "test:ds": "node design-system/test/utils-parity.mjs && node design-system/test/render-parity.mjs && node design-system/test/snapshot.mjs && node design-system/test/options.mjs && node design-system/test/export-notify.mjs && node design-system/test/slice-parity.mjs && node design-system/test/page-snapshot.mjs",
+    "test:server": "node test/authz.mjs",
+    "test:http": "node test/http.mjs"
   },
   "dependencies": {
     "next": "^15.4.5",

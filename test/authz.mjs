@@ -1,0 +1,371 @@
+// Authorisation, session and input-handling tests for the server layer.
+//
+//   node test/authz.mjs
+//
+// These exercise lib/ directly rather than through HTTP, because the rules they cover are properties of the
+// data-access layer: a requester cannot read another requester's PRF whether the call arrives from the UI,
+// from curl, or from a handler someone adds next year and forgets to guard. test/http.mjs covers the wiring
+// on top — cookies, CSRF, status codes — against a running server.
+
+import { build } from "esbuild";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const here = path.dirname(new URL(import.meta.url).pathname);
+const root = path.join(here, "..");
+const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "prf-authz-"));
+// The bundle is written inside the project so Node resolves the externals (react, next) from the
+// repository's own node_modules; only the data store lives in the system temp directory.
+const buildDir = path.join(here, ".tmp");
+await fs.rm(buildDir, { recursive: true, force: true });
+await fs.mkdir(buildDir, { recursive: true });
+
+process.env.PRF_STORE_PATH = path.join(tmp, "store.json");
+process.env.PRF_SESSION_SECRET = "test-secret-that-is-long-enough-to-be-accepted";
+process.env.NODE_ENV = "test";
+
+// ---- bundle the modules under test -----------------------------------------------------------------
+const outfile = path.join(buildDir, "server.mjs");
+await build({
+  stdin: {
+    contents: `
+      export * from "./lib/store.ts";
+      export * from "./lib/session.ts";
+      export * from "./lib/password.ts";
+      export * as sanitize from "./lib/sanitize.ts";
+      export * as input from "./lib/prf-input.ts";
+      export { APPROVAL_TIERS } from "./design-system/src/utils.ts";
+      export { DEFAULT_PAYMENT_TYPES, DEFAULT_EXPENSE_TYPES } from "./design-system/src/components/RequestForm.tsx";
+    `,
+    resolveDir: root,
+    loader: "ts",
+  },
+  outfile,
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  jsx: "automatic",
+  external: ["react", "react-dom", "react/jsx-runtime", "next/server", "next/headers"],
+  alias: { "server-only": path.join(here, "stubs", "server-only.js") },
+  logOverride: { "ignored-directive": "silent" },
+  logLevel: "error",
+});
+const S = await import(pathToFileURL(outfile).href);
+
+// ---- tiny runner -----------------------------------------------------------------------------------
+let passed = 0;
+const failures = [];
+const check = async (name, work) => {
+  try {
+    await work();
+    passed += 1;
+  } catch (error) {
+    failures.push(`${name}: ${error && error.message}`);
+  }
+};
+
+/** Asserts that `work` rejects with an error whose name or message matches. */
+const rejects = async (work, expected) => {
+  try {
+    await work();
+  } catch (error) {
+    const text = `${error.name}: ${error.message}`;
+    assert.ok(text.includes(expected), `expected "${expected}", got "${text}"`);
+    return;
+  }
+  assert.fail(`expected a rejection matching "${expected}"`);
+};
+
+// ---- actors ----------------------------------------------------------------------------------------
+const alice = { userId: "u-alice", email: "alice@woodcraftrangers.org", name: "Alice Requester", role: "REQUESTER" };
+const bob = { userId: "u-bob", email: "bob@woodcraftrangers.org", name: "Bob Requester", role: "REQUESTER" };
+const approver = { userId: "u-appr", email: "marcus@woodcraftrangers.org", name: "Marcus Lee", role: "APPROVER" };
+
+const draft = (overrides = {}) => ({
+  vendor: "Northstar Learning",
+  description: "24 robotics kits for the Grade 9 after-school STEM lab, for 24 students",
+  district: "District 4",
+  school: "Central High School",
+  siteCode: "7704",
+  fundingCode: "88STEM",
+  paymentType: "direct",
+  expenseType: "Program Supplies",
+  customSite: false,
+  customFunding: false,
+  lineItems: [{ description: "Classroom robotics kit", quantity: 24, unitPrice: 325 }],
+  ...overrides,
+});
+
+// ---- input handling --------------------------------------------------------------------------------
+
+await check("sanitize strips control characters and bidi overrides", () => {
+  const dirty = `Robotics${String.fromCharCode(0)} kit${String.fromCharCode(0x202e)} order`;
+  const cleaned = S.sanitize.clean(dirty);
+  assert.equal(cleaned, "Robotics kit order");
+  assert.ok(!Array.from(cleaned).some(character => character.charCodeAt(0) === 0x202e));
+});
+
+await check("sanitize keeps newlines in free text but flattens them in single-line fields", () => {
+  const value = ["first", "second"].join(String.fromCharCode(10));
+  assert.equal(S.sanitize.optionalText(value, "Note", 100), value);
+  assert.equal(S.sanitize.line(value, "Vendor", 100), "first second");
+});
+
+await check("sanitize rejects out-of-range values rather than truncating", () => {
+  assert.throws(() => S.sanitize.text("x".repeat(50), "Vendor", 20), /20 characters or fewer/);
+  assert.throws(() => S.sanitize.money("-5", "Amount"), /cannot be negative/);
+  assert.throws(() => S.sanitize.money("banana", "Amount"), /must be a number/);
+  assert.throws(() => S.sanitize.count(0, "Quantity"), /at least 1/);
+  assert.throws(() => S.sanitize.email("not-an-address"), /valid email/);
+  assert.throws(() => S.sanitize.id("../../etc/passwd", "Request id"), /not a valid identifier/);
+});
+
+await check("parseDraft ignores fields the client is not allowed to set", () => {
+  const parsed = S.input.parseDraft({
+    ...draft(),
+    status: "Approved",
+    ownerId: "u-someone-else",
+    approverSigned: true,
+    audit: [{ action: "forged" }],
+  });
+  assert.equal(parsed.status, undefined);
+  assert.equal(parsed.ownerId, undefined);
+  assert.equal(parsed.approverSigned, undefined);
+  assert.equal(parsed.audit, undefined);
+});
+
+await check("parseDraft refuses a payment type outside the server's own list", () => {
+  assert.throws(() => S.input.parseDraft(draft({ paymentType: "wire-transfer" })), /not a permitted value/);
+});
+
+await check("parseDraft leaves documents alone when the client does not mention them", () => {
+  assert.equal(S.input.parseDraft(draft()).documents, undefined);
+  assert.deepEqual(S.input.parseDraft({ ...draft(), documents: ["quote.pdf"] }).documents, ["quote.pdf"]);
+});
+
+// ---- ladder and vocabulary parity with the design system -------------------------------------------
+
+await check("the server's approval ladder matches the design system's tiers", () => {
+  assert.deepEqual(
+    S.APPROVAL_LADDER.map(tier => [tier.max, tier.role]),
+    S.APPROVAL_TIERS.map(tier => [tier.max, tier.role]),
+  );
+});
+
+await check("payment and expense vocabularies match the design system's", () => {
+  assert.deepEqual([...S.input.PAYMENT_TYPES], S.DEFAULT_PAYMENT_TYPES.map(([value]) => value));
+  assert.deepEqual([...S.input.EXPENSE_TYPES], [...S.DEFAULT_EXPENSE_TYPES]);
+});
+
+// ---- status machine --------------------------------------------------------------------------------
+
+await check("no transition returns a submitted or approved PRF to Draft", () => {
+  assert.throws(() => S.assertTransition("Awaiting Approval", "Draft"), /cannot become Draft/);
+  assert.throws(() => S.assertTransition("Approved", "Draft"), /cannot become Draft/);
+  assert.throws(() => S.assertTransition("Returned", "Draft"), /cannot become Draft/);
+  assert.throws(() => S.assertTransition("Approved", "Awaiting Approval"), /cannot become/);
+});
+
+// ---- the lifecycle, with both requesters and the approver acting -----------------------------------
+
+let alicePrf;
+
+await check("a requester can create a draft", async () => {
+  alicePrf = await S.createDraft(alice, S.input.parseDraft(draft()));
+  assert.equal(alicePrf.status, "Draft");
+  assert.equal(alicePrf.ownerId, alice.userId);
+  assert.equal(alicePrf.amount, 7800);
+  assert.equal(alicePrf.audit.length, 1);
+});
+
+await check("an approver cannot create a purchase request", async () => {
+  await rejects(() => S.createDraft(approver, S.input.parseDraft(draft())), "Only requesters can create");
+});
+
+await check("another requester cannot see the draft in their list", async () => {
+  const mine = await S.listRequests(bob);
+  assert.equal(mine.length, 0);
+});
+
+await check("another requester gets Not Found rather than Forbidden for someone else's PRF", async () => {
+  await rejects(() => S.getRequest(bob, alicePrf.id), "NotFoundError");
+});
+
+await check("an approver sees the whole register", async () => {
+  const all = await S.listRequests(approver);
+  assert.equal(all.length, 1);
+});
+
+await check("another requester cannot edit or delete a PRF that is not theirs", async () => {
+  await rejects(() => S.updateDraft(bob, alicePrf.id, S.input.parseDraft(draft())), "NotFoundError");
+  await rejects(() => S.deleteDraft(bob, alicePrf.id), "NotFoundError");
+});
+
+await check("submission requires a signature and a complete record", async () => {
+  await rejects(() => S.submitRequest(alice, alicePrf.id, ""), "signature is required");
+  const bare = await S.createDraft(alice, S.input.parseDraft(draft({ vendor: "", lineItems: [] })));
+  await rejects(() => S.submitRequest(alice, bare.id, "Alice Requester"), "A vendor is required before submitting");
+  await S.deleteDraft(alice, bare.id);
+});
+
+await check("submitting signs, routes by amount, and records both in the audit trail", async () => {
+  const before = alicePrf.audit.length;
+  alicePrf = await S.submitRequest(alice, alicePrf.id, "Alice Requester");
+  assert.equal(alicePrf.status, "Awaiting Approval");
+  assert.equal(alicePrf.requesterSigned, true);
+  assert.equal(alicePrf.approvals[1].role, "Director"); // $7,800 lands in the $5,001–$15,000 band
+  assert.equal(alicePrf.audit.length, before + 2);
+  assert.ok(alicePrf.audit.some(entry => entry.action.includes("Routed for approval")));
+});
+
+await check("a submitted PRF can no longer be edited or deleted by its requester", async () => {
+  await rejects(() => S.updateDraft(alice, alicePrf.id, S.input.parseDraft(draft())), "can no longer be edited");
+  await rejects(() => S.deleteDraft(alice, alicePrf.id), "unsubmitted draft");
+});
+
+await check("a requester cannot approve anything, including their own request", async () => {
+  await rejects(
+    () => S.decideRequest(alice, alicePrf.id, { action: "approve", comment: "", signature: "Alice" }),
+    "Only approvers can review",
+  );
+});
+
+await check("sending back requires a comment", async () => {
+  await rejects(
+    () => S.decideRequest(approver, alicePrf.id, { action: "reject", comment: "", signature: "" }),
+    "comment is required",
+  );
+});
+
+await check("a send-back records the reason and reopens the PRF for editing", async () => {
+  alicePrf = await S.decideRequest(approver, alicePrf.id, {
+    action: "reject",
+    comment: "Attach the vendor quote and split the transport line onto its own PRF.",
+    signature: "",
+  });
+  assert.equal(alicePrf.status, "Returned");
+  assert.ok(alicePrf.reviewNote.startsWith("Attach the vendor quote"));
+  assert.equal(alicePrf.audit.at(-1).actorName, approver.name);
+
+  alicePrf = await S.updateDraft(alice, alicePrf.id, S.input.parseDraft(draft({ vendor: "Northstar Learning Ltd" })));
+  assert.equal(alicePrf.vendor, "Northstar Learning Ltd");
+  alicePrf = await S.submitRequest(alice, alicePrf.id, "Alice Requester");
+  assert.equal(alicePrf.status, "Awaiting Approval");
+});
+
+await check("approval requires a signature and is terminal", async () => {
+  await rejects(
+    () => S.decideRequest(approver, alicePrf.id, { action: "approve", comment: "", signature: "" }),
+    "signature is required",
+  );
+  alicePrf = await S.decideRequest(approver, alicePrf.id, { action: "approve", comment: "", signature: "Marcus Lee" });
+  assert.equal(alicePrf.status, "Approved");
+  assert.equal(alicePrf.approverSigned, true);
+  assert.ok(alicePrf.approvedAt);
+  await rejects(
+    () => S.decideRequest(approver, alicePrf.id, { action: "reject", comment: "changed my mind", signature: "" }),
+    "cannot become Returned",
+  );
+  await rejects(() => S.deleteDraft(alice, alicePrf.id), "unsubmitted draft");
+});
+
+await check("the audit trail only ever grew, and its earlier entries are untouched", async () => {
+  const final = await S.getRequest(approver, alicePrf.id);
+  const actions = final.audit.map(entry => entry.action);
+  assert.deepEqual(actions.slice(0, 2), ["Draft created", "Submitted and electronically signed"]);
+  // Seven events: created, submitted, routed, returned, saved, resubmitted, routed, approved.
+  assert.equal(final.audit.length, 8);
+  assert.ok(final.audit.every(entry => entry.id && entry.at && entry.actorName));
+  // Every entry carries who did it, which is the point of keeping them.
+  assert.equal(final.audit.filter(entry => entry.actorId === approver.userId).length, 2);
+});
+
+await check("a second requester's PRF stays invisible to the first", async () => {
+  const bobPrf = await S.createDraft(bob, S.input.parseDraft(draft({ vendor: "City Office Supply" })));
+  const aliceSees = await S.listRequests(alice);
+  assert.ok(!aliceSees.some(entry => entry.id === bobPrf.id));
+  assert.ok((await S.listRequests(approver)).some(entry => entry.id === bobPrf.id));
+  await rejects(() => S.getRequest(alice, bobPrf.id), "NotFoundError");
+});
+
+// ---- sessions --------------------------------------------------------------------------------------
+
+const user = { id: "u-alice", email: alice.email, name: alice.name, role: "REQUESTER", district: "D4", school: "CHS" };
+
+await check("a freshly minted session validates and slides its idle window forward", async () => {
+  const started = S.startSession(user);
+  const check1 = await S.readSessionToken(started.token);
+  assert.equal(check1.ok, true);
+  assert.equal(check1.session.userId, user.id);
+  assert.ok(check1.session.lastSeen >= started.session.lastSeen);
+});
+
+await check("a tampered payload or signature is refused", async () => {
+  const started = S.startSession(user);
+  const [payload, signature] = started.token.split(".");
+  const forged = Buffer.from(JSON.stringify({ ...started.session, role: "APPROVER" }), "utf8")
+    .toString("base64")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+  assert.equal((await S.readSessionToken(`${forged}.${signature}`)).ok, false);
+  assert.equal((await S.readSessionToken(`${payload}.${signature.slice(0, -2)}xx`)).ok, false);
+  assert.equal((await S.readSessionToken("not-a-token")).ok, false);
+  assert.equal((await S.readSessionToken(undefined)).ok, false);
+});
+
+await check("a session idle for more than an hour is refused", async () => {
+  const started = S.startSession(user);
+  const stale = { ...started.session, lastSeen: Date.now() - S.IDLE_TIMEOUT_MS - 1000 };
+  const result = await S.readSessionToken(S.encodeSession(stale));
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "idle");
+});
+
+await check("a session past its absolute lifetime is refused however active it has been", async () => {
+  const started = S.startSession(user);
+  const old = { ...started.session, issuedAt: Date.now() - S.ABSOLUTE_TIMEOUT_MS - 1000, lastSeen: Date.now() };
+  const result = await S.readSessionToken(S.encodeSession(old));
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "expired");
+});
+
+await check("signing out revokes the token, not just the cookie", async () => {
+  const started = S.startSession(user);
+  assert.equal((await S.readSessionToken(started.token)).ok, true);
+  await S.endSession(started.session);
+  const replayed = await S.readSessionToken(started.token);
+  assert.equal(replayed.ok, false);
+  assert.equal(replayed.reason, "revoked");
+});
+
+// ---- passwords -------------------------------------------------------------------------------------
+
+await check("password hashing round-trips and rejects the wrong password", async () => {
+  const stored = await S.hashPassword("correct horse battery staple");
+  assert.ok(stored.startsWith("scrypt:"));
+  assert.equal(await S.verifyPassword("correct horse battery staple", stored), true);
+  assert.equal(await S.verifyPassword("wrong", stored), false);
+  assert.equal(await S.verifyPassword("anything", undefined), false);
+  assert.equal(await S.verifyPassword("anything", "garbage"), false);
+});
+
+// ---- report ----------------------------------------------------------------------------------------
+
+await fs.rm(tmp, { recursive: true, force: true });
+await fs.rm(buildDir, { recursive: true, force: true });
+
+if (failures.length) {
+  console.error(`
+  ✗ ${failures.length} of ${passed + failures.length} authorisation checks FAILED
+`);
+  failures.forEach(line => console.error(`    ${line}
+`));
+  process.exit(1);
+}
+console.log(`
+  ✓ ${passed} authorisation, session and input checks passed
+`);

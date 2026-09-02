@@ -1,0 +1,44 @@
+/* The sign-in screen. */
+
+.loginPage{display:grid;place-items:center;min-height:100vh;padding:32px 20px;background:var(--teal);background-image:radial-gradient(circle at 15% 20%,rgba(168,218,220,.28),transparent 45%),radial-gradient(circle at 85% 75%,rgba(233,196,106,.26),transparent 42%)}
+.loginCard{width:min(560px,100%);padding:34px 36px 28px;border-radius:6px 26px 6px 26px;background:var(--paper);box-shadow:var(--shadow)}
+
+.loginBrand{display:flex;align-items:center;gap:13px;margin-bottom:26px}
+.loginMark{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:var(--yellow);color:var(--ink);font-weight:900;letter-spacing:.04em}
+.loginBrand strong{display:block;font-size:13px;letter-spacing:.12em;line-height:1.25}
+.loginBrand small{display:block;margin-top:3px;color:var(--muted);font-size:11px}
+
+.loginCard h1{margin:0;font-size:31px;letter-spacing:-.02em}
+.loginLead{margin:7px 0 20px;color:var(--muted);font-size:13px;line-height:1.55}
+
+.loginNotice{margin:0 0 16px;padding:11px 14px;border-radius:10px;background:#eef4f3;color:var(--teal-dark);font-size:12px;line-height:1.5}
+.loginError{margin:0 0 15px;padding:11px 14px;border-left:3px solid var(--coral);border-radius:0 10px 10px 0;background:#fdf3ef;color:#8f3a20;font-size:12px;font-weight:700;line-height:1.5}
+
+.loginCard form{display:grid;gap:15px}
+.loginCard label{display:grid;gap:6px}
+.loginCard label span{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.loginCard input{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:10px;background:var(--beige);font-size:14px}
+.loginCard input:focus-visible{outline:2px solid var(--teal);outline-offset:1px}
+.loginCard input:disabled{opacity:.6}
+.loginSubmit{margin-top:4px;width:100%}
+.loginSubmit:disabled{opacity:.45;box-shadow:none}
+
+.loginSso{margin:0;padding:15px 17px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:12px;line-height:1.6}
+
+.loginPortals{display:grid;grid-template-columns:1fr 1fr;gap:1px;margin:26px 0 0;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--line)}
+.loginPortals>div{display:grid;gap:4px;padding:15px 16px;background:var(--beige)}
+.loginPortals small{color:var(--teal-dark);font-size:9px;font-weight:800;letter-spacing:.12em}
+.loginPortals strong{font-size:13px;line-height:1.3}
+.loginPortals span{color:var(--muted);font-size:11px;line-height:1.5}
+
+.loginFoot{margin:18px 0 0;color:var(--muted);font-size:11px;line-height:1.6}
+
+/* Sign-out sits in the header's action slot, beside the notification bell. */
+.signOut{border:0;background:none;box-shadow:none;padding:8px 12px;border-radius:9px;color:var(--teal-dark);font-size:12px;font-weight:800;letter-spacing:.02em}
+.signOut:hover{background:#eef4f3}
+.signOut:disabled{opacity:.5}
+
+@media(max-width:560px){
+  .loginCard{padding:26px 22px 22px}
+  .loginPortals{grid-template-columns:1fr}
+}

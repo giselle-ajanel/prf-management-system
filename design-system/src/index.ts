@@ -129,6 +129,7 @@ export { SessionDialog, type SessionDialogProps } from "./components/SessionDial
 export { QueueItem, type QueueItemProps } from "./components/QueueItem";
 export { StatCard, type StatCardProps, type StatTone } from "./components/StatCard";
 export { RuleBanner, type RuleBannerProps, type RuleTone } from "./components/RuleBanner";
+export { LoginScreen, type LoginScreenProps, type Credentials } from "./components/LoginScreen";
 export {
   SupervisorReview,
   DEFAULT_REVIEW_CHECKLIST,

@@ -19,3 +19,6 @@ npm-debug.log*
 design-system/test/.*-tmp/
 design-system/test/.dump/
 design-system/test/.page-render.html
+
+# server test scratch
+/test/.tmp/

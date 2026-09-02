@@ -62,6 +62,10 @@ const cases = [
   ["SupervisorReview.custom-coding", () => createElement(ds.SupervisorReview, { request: { ...awaiting, siteCode: "", customSite: true, customFunding: true }, onClose: noop, onApprove: noop, onReject: noop })],
   // $96,400 lands in the CFO + CEO band — the one tier the brief still has an open question about.
   ["SupervisorReview.cfo-tier", () => createElement(ds.SupervisorReview, { request: { ...awaiting, amount: 96400, lineItems: [], documents: [] }, onClose: noop, onApprove: noop, onReject: noop })],
+  // The sign-in screen: the only surface an unauthenticated visitor reaches, in each of its three states.
+  ["LoginScreen.blank", () => createElement(ds.LoginScreen, { onSubmit: noop })],
+  ["LoginScreen.error", () => createElement(ds.LoginScreen, { onSubmit: noop, error: "That email and password combination was not recognised", notice: "Your session ended after an hour of inactivity. Please sign in again." })],
+  ["LoginScreen.sso", () => createElement(ds.LoginScreen, { onSubmit: noop, passwordLoginEnabled: false })],
   ["Finance.unfiltered", () => createElement(ds.Finance, { requests: ds.sampleRequests, all: ds.sampleRequests, filters: ds.emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
   ["Finance.no-matches", () => createElement(ds.Finance, { requests: [], all: ds.sampleRequests, filters: { ...ds.emptyFinanceFilters, query: "zzz" }, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
   ["QueueItem.awaiting", () => createElement(ds.QueueItem, { request: awaiting, onOpen: noop })],
