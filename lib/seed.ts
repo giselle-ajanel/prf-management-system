@@ -21,6 +21,7 @@ type SeedUser = { email: string; firstName: string; lastName: string; role: Role
 // woodcraftrangers.org: PRF_ALLOWED_EMAIL_DOMAINS is configured for it, and an account on another domain
 // would be refused the moment this deployment sits behind SSO.
 const SEED_USERS: SeedUser[] = [
+  { email: "requester@woodcraftrangers.org", firstName: "Robin", lastName: "Diaz", role: "REQUESTER", district: "District 4", school: "Central High School" },
   { email: "giselle.ajanel@woodcraftrangers.org", firstName: "Giselle", lastName: "Ajanel", role: "REQUESTER", district: "District 4", school: "Central High School" },
   { email: "maya.thompson@woodcraftrangers.org", firstName: "Maya", lastName: "Thompson", role: "REQUESTER", district: "District 1", school: "Lincoln Middle School" },
   { email: "manager@woodcraftrangers.org", firstName: "Marcus", lastName: "Lee", role: "APPROVER", tier: "MANAGER", district: "Woodcraft", school: "Operations" },

@@ -115,6 +115,7 @@ export default function PurchaseRequestHub() {
   const [pendingDelete,setPendingDelete] = useState<Request|null>(null);
   const [profile,setProfile] = useState<Profile|null>(null);
   const [directory,setDirectory] = useState<DirectoryUser[]|null>(null);
+  const [demoAccounts,setDemoAccounts] = useState<{label:string;email:string;password:string}[]>([]);
   const [profileNotice,setProfileNotice] = useState(""); const [profileError,setProfileError] = useState("");
   const [attachmentError,setAttachmentError] = useState(""); const [attachmentBusy,setAttachmentBusy] = useState(false);
   const [attachments,setAttachments] = useState<{id:string;name:string;size:number;type:string}[]>([]);
@@ -190,7 +191,12 @@ export default function PurchaseRequestHub() {
   useEffect(()=>{ void (async()=>{
     const info = await getSession();
     if(info.authenticated&&info.user) { adopt(info); await refresh(); }
-    else setSession(info);
+    else {
+      setSession(info);
+      // Development and demo builds offer one-click sign-in; a real deployment returns an empty list.
+      const demo = await fetch("/api/demo-accounts",{credentials:"same-origin"}).then(r=>r.json()).catch(()=>({accounts:[]}));
+      setDemoAccounts(demo.accounts||[]);
+    }
   })() },[]);
 
   const signIn = async (credentials:Credentials) => {
@@ -440,7 +446,7 @@ export default function PurchaseRequestHub() {
   // ---- render ----------------------------------------------------------------------------------------
 
   if(!session) return <main className="loginPage"><section className="loginCard"><h1>Purchase Request Hub</h1><p className="loginLead">Checking your session…</p></section></main>;
-  if(!session.authenticated||!user) return <LoginScreen onSubmit={signIn} busy={authBusy} error={authError} notice={authNotice} passwordLoginEnabled={session.passwordLoginEnabled!==false}/>;
+  if(!session.authenticated||!user) return <LoginScreen onSubmit={signIn} busy={authBusy} error={authError} notice={authNotice} passwordLoginEnabled={session.passwordLoginEnabled!==false} demoAccounts={demoAccounts}/>;
 
   // Navigation is built from the role rather than disabled by it: an area a person can never enter is
   // clutter, not a locked door, and the door itself is on the server.

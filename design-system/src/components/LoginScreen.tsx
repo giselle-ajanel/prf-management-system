@@ -15,7 +15,14 @@ export type LoginScreenProps = {
   /** False when the deployment authenticates through SSO and the form should not be offered at all. */
   passwordLoginEnabled?: boolean;
   brandLines?: string[];
+  /**
+   * Demo accounts to offer as one-click sign-ins. Supplied only by a development or demo build; a real
+   * deployment passes nothing and this whole section disappears.
+   */
+  demoAccounts?: DemoAccount[];
 };
+
+export type DemoAccount = { label: string; email: string; password: string };
 
 /**
  * The sign-in screen, and the only thing an unauthenticated visitor can reach.
@@ -39,6 +46,7 @@ export function LoginScreen({
   notice = "",
   passwordLoginEnabled = true,
   brandLines = ["WOODCRAFT", "RANGERS"],
+  demoAccounts = [],
 }: LoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -114,6 +122,31 @@ export function LoginScreen({
             This deployment signs in through your organisation&rsquo;s single sign-on. Open the Hub from your
             staff portal and you will arrive already authenticated.
           </p>
+        )}
+
+        {demoAccounts.length > 0 && (
+          <section className="demoAccounts">
+            <h2>Trying it out? Pick a role.</h2>
+            <p>
+              These are demo accounts on this computer. Choosing one fills the form — then press Sign in.
+            </p>
+            <ul>
+              {demoAccounts.map(account => (
+                <li key={account.email}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail(account.email);
+                      setPassword(account.password);
+                    }}
+                  >
+                    <strong>{account.label}</strong>
+                    <span>{account.email}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         <div className="loginPortals">

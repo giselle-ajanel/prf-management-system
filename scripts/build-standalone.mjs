@@ -26,9 +26,40 @@ async function accountingRows(){
   return codesForAllSites();
 }
 
+// The demo roster, built with the same shape lib/store.ts expects. Passwords are the single word "demo":
+// there is no server here to hash against, and nothing real to protect.
+function demoSeed(){
+  const people=[
+    ["requester@woodcraft.demo","Robin","Diaz","REQUESTER",null,null,"District 4","Central High School"],
+    ["manager@woodcraft.demo","Marcus","Lee","APPROVER","MANAGER",null,"Woodcraft","Operations"],
+    ["director@woodcraft.demo","Ana","Rivera","APPROVER","DIRECTOR",null,"Woodcraft","Programs"],
+    ["chief@woodcraft.demo","Daniel","Okafor","APPROVER","CHIEF",null,"Woodcraft","Executive"],
+    ["finance@woodcraft.demo","Tomas","Reyes","FINANCE_REVIEWER",null,null,"Woodcraft","Finance"],
+    ["financeadmin@woodcraft.demo","Elena","Petrov","FINANCE_ADMIN",null,null,"Woodcraft","Finance"],
+    ["auditor@woodcraft.demo","Nadia","Reid","VIEW_ONLY",null,"AUDITOR","Woodcraft","External Audit"],
+    ["bookkeeper@woodcraft.demo","Ben","Ortiz","VIEW_ONLY",null,"BOOKKEEPER","Woodcraft","Finance"],
+  ];
+  const title=value=>value.replace(/_/g," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+  const label=(role,tier,viewer)=>tier?`${title(tier)} (Approver)`
+    :viewer?`${title(viewer)} (View Only)`
+    :role==="FINANCE_REVIEWER"?"Finance Reviewer":role==="FINANCE_ADMIN"?"Finance Administrator":"Requester";
+  const users=people.map(([email,firstName,lastName,role,tier,viewer,district,school],index)=>({
+    id:`demo-${index+1}`,email,firstName,lastName,name:`${firstName} ${lastName}`,contactEmail:email,
+    role,...(tier?{tier}:{}),...(viewer?{viewer}:{}),district,school,passwordHash:"",
+  }));
+  const accounts=people.map(([email,,,role,tier,viewer])=>({label:label(role,tier,viewer),email,password:"demo"}));
+  return {users,accounts};
+}
+
 async function appBundle(options){
   const outfile=path.join(tmp,"app.js");
-  await build({entryPoints:[at("scripts","standalone-entry.tsx")],outfile,bundle:true,platform:"browser",format:"iife",target:["chrome109","edge109","firefox115","safari16"],jsx:"automatic",minify:true,legalComments:"none",define:{"process.env.NODE_ENV":'"production"',__ACCOUNTING_PAYLOAD__:JSON.stringify({site:"All FY27 sites",scope:"all",options})},logLevel:"silent"});
+  const shim=name=>at("scripts","browser-shims",name);
+  await build({entryPoints:[at("scripts","standalone-entry.tsx")],outfile,bundle:true,platform:"browser",format:"iife",target:["chrome109","edge109","firefox115","safari16"],jsx:"automatic",minify:true,legalComments:"none",
+    // The store is written for Node; these four swaps are the whole of what the browser needs, which is
+    // why the demo can run the real rules instead of a reimplementation of them.
+    alias:{"server-only":shim("empty.js"),"node:fs/promises":shim("node-fs.js"),"node:path":shim("node-path.js"),"node:crypto":shim("node-crypto.js")},
+    define:{"process.env.NODE_ENV":'"production"',"process.env.PRF_STORE_PATH":'""',__ACCOUNTING_PAYLOAD__:JSON.stringify({site:"All FY27 sites",scope:"all",options}),__DEMO_SEED__:JSON.stringify(demoSeed())},
+    logLevel:"warning"});
   return fs.readFile(outfile,"utf8");
 }
 
@@ -67,7 +98,12 @@ try{
   await fs.mkdir(at("share"),{recursive:true});
   const outfile=at("share","PRF-Hub.html");
   await fs.writeFile(outfile,html);
+  // A second copy where GitHub Pages can serve it directly from the repository, so the shared link needs
+  // no build pipeline and no extra permissions.
+  await fs.mkdir(at("docs"),{recursive:true});
+  await fs.writeFile(at("docs","index.html"),html);
   step(`css ${bytes(Buffer.byteLength(css))} · js ${bytes(Buffer.byteLength(js))}`);
+  step("also written to docs/index.html for the shared link");
   console.log(`\n  ✓ ${path.relative(root,outfile)} — ${bytes(Buffer.byteLength(html))}, single file, no install required\n`);
 }finally{
   await fs.rm(tmp,{recursive:true,force:true});

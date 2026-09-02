@@ -372,11 +372,37 @@ const EMPTY: Database = { version: 1, users: [], requests: [], notifications: []
 let cache: Database | null = null;
 let queue: Promise<unknown> = Promise.resolve();
 
+/**
+ * Where the data lives, as two functions.
+ *
+ * The rules in this module are the valuable part and they are environment-agnostic; only the reading and
+ * writing is not. Putting persistence behind this pair lets the offline demo build run the very same
+ * authorisation, state machine and audit logic against browser storage, instead of reimplementing them
+ * client-side where they would drift from the real ones within a release.
+ */
+export type StorePersistence = {
+  read: () => Promise<Database | null>;
+  write: (database: Database) => Promise<void>;
+};
+
+let persistence: StorePersistence | null = null;
+
+export function configureStore(adapter: StorePersistence): void {
+  persistence = adapter;
+  cache = null;
+  queue = Promise.resolve();
+}
+
 async function readDatabase(): Promise<Database> {
   if (cache) return cache;
   try {
-    const raw = await fs.readFile(storePath(), "utf8");
-    const parsed = JSON.parse(raw) as Partial<Database>;
+    const parsed = persistence
+      ? await persistence.read()
+      : (JSON.parse(await fs.readFile(storePath(), "utf8")) as Partial<Database>);
+    if (!parsed) {
+      cache = { ...EMPTY, users: [], requests: [], notifications: [], accountLog: [], revoked: [] };
+      return cache;
+    }
     cache = {
       version: parsed.version || 1,
       // Accounts written before the ladder and the split name fields existed are brought forward on read,
@@ -415,6 +441,11 @@ async function readDatabase(): Promise<Database> {
 
 /** Commit by atomic rename so a crash mid-write cannot leave a half-written store on disk. */
 async function writeDatabase(next: Database): Promise<void> {
+  if (persistence) {
+    await persistence.write(next);
+    cache = next;
+    return;
+  }
   const target = storePath();
   await fs.mkdir(path.dirname(target), { recursive: true });
   const temporary = `${target}.${process.pid}.tmp`;
