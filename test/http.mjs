@@ -46,6 +46,8 @@ process.on("exit", () => server.kill("SIGKILL"));
 
 const jar = () => ({ cookies: new Map(), csrf: "" });
 
+const jarCookie = session => [...session.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+
 function remember(session, response) {
   for (const raw of response.headers.getSetCookie?.() || []) {
     const [pair] = raw.split(";");
@@ -128,7 +130,7 @@ for (let attempt = 0; attempt < 20 && !Object.keys(credentials).length; attempt 
   } catch { await new Promise(resolve => setTimeout(resolve, 500)); }
 }
 
-const alice = jar(), maya = jar(), approver = jar(), financeUser = jar(), stranger = jar();
+const alice = jar(), maya = jar(), approver = jar(), financeUser = jar(), auditorJar = jar(), memberJar = jar(), stranger = jar();
 
 await check("the demo accounts were seeded across the ladder with generated passwords", () => {
   assert.equal(credentials.REQUESTER?.length, 2);
@@ -137,7 +139,11 @@ await check("the demo accounts were seeded across the ladder with generated pass
   assert.equal(credentials["APPROVER/CFO"]?.length, 1);
   assert.equal(credentials.FINANCE_REVIEWER?.length, 1);
   assert.equal(credentials.FINANCE_ADMIN?.length, 1);
-  assert.equal(credentials.VIEW_ONLY?.length, 1);
+  assert.equal(credentials["VIEW_ONLY/AUDITOR"]?.length, 1);
+  assert.equal(credentials["VIEW_ONLY/BOOKKEEPER"]?.length, 1);
+  assert.equal(credentials["VIEW_ONLY/MEMBER"]?.length, 1);
+  assert.equal(credentials["VIEW_ONLY/TRAVEL_MANAGER"]?.length, 1);
+  assert.equal(credentials["VIEW_ONLY/ASSISTANT"]?.length, 1);
   assert.ok(credentials.REQUESTER[0].password.length >= 12);
   // Position-prefixed addresses, on the domain the SSO allowlist is configured for.
   assert.match(credentials["APPROVER/MANAGER"][0].email, /^manager@woodcraftrangers\.org$/);
@@ -473,6 +479,34 @@ await check("a rename shows up immediately, without signing in again", async () 
   const session = await call(approver, "GET", "/api/auth/session");
   assert.equal(session.body.user.name, "Jane Doe");
   assert.equal(session.body.user.role, "APPROVER");
+});
+
+
+await check("a read-only account is refused every state change with 403", async () => {
+  assert.equal((await call(auditorJar, "POST", "/api/auth/login", credentials["VIEW_ONLY/AUDITOR"][0])).status, 200);
+  assert.equal((await call(memberJar, "POST", "/api/auth/login", credentials["VIEW_ONLY/MEMBER"][0])).status, 200);
+
+  for (const account of [auditorJar, memberJar]) {
+    assert.equal((await call(account, "POST", "/api/requests", { vendor: "X" })).status, 403);
+    assert.equal((await call(account, "PUT", `/api/requests/${alicePrf}`, { vendor: "X" })).status, 403);
+    assert.equal((await call(account, "DELETE", `/api/requests/${alicePrf}`)).status, 403);
+    assert.equal((await call(account, "POST", `/api/requests/${alicePrf}/submit`, { signature: "X" })).status, 403);
+    assert.equal((await call(account, "POST", `/api/requests/${alicePrf}/decision`, { action: "approve", signature: "X" })).status, 403);
+    assert.equal((await call(account, "POST", `/api/requests/${alicePrf}/finance-review`, { action: "approve", signature: "X" })).status, 403);
+    // Reading the submitted register is exactly what these accounts are for.
+    assert.equal((await call(account, "GET", "/api/requests")).status, 200);
+    assert.equal((await call(account, "GET", `/api/requests/${alicePrf}`)).status, 200);
+  }
+});
+
+await check("the auditor can export the register and the other viewers cannot", async () => {
+  const cookie = jarCookie(auditorJar);
+  const allowed = await fetch(`${base}/api/requests/export`, { headers: { cookie } });
+  assert.equal(allowed.status, 200);
+  assert.match(allowed.headers.get("content-type") || "", /text\/csv/);
+
+  const refused = await fetch(`${base}/api/requests/export`, { headers: { cookie: jarCookie(memberJar) } });
+  assert.equal(refused.status, 403);
 });
 
 // ---- sign-out --------------------------------------------------------------------------------------

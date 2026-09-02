@@ -13,6 +13,15 @@ import type { Approval, AuditEvent, LineItem, Request, Status } from "@ds";
 
 export type Role = "REQUESTER" | "APPROVER" | "FINANCE_REVIEWER" | "FINANCE_ADMIN" | "VIEW_ONLY";
 export type Tier = "MANAGER" | "DIRECTOR" | "SENIOR_DIRECTOR" | "CHIEF" | "CFO" | "CEO";
+export type ViewerProfile = "AUDITOR" | "BOOKKEEPER" | "MEMBER" | "TRAVEL_MANAGER" | "ASSISTANT";
+
+export const VIEWER_LABELS: Record<ViewerProfile, string> = {
+  AUDITOR: "Auditor",
+  BOOKKEEPER: "Bookkeeper",
+  MEMBER: "Member",
+  TRAVEL_MANAGER: "Travel Manager",
+  ASSISTANT: "Assistant",
+};
 
 /** Mirrors the server's taxonomy so the interface can label a role and hide what it cannot use. */
 export const ROLE_LABELS: Record<Role, string> = {
@@ -42,16 +51,24 @@ export const isApprover = (role: Role) => role === "APPROVER";
 export const isFinance = (role: Role) => role === "FINANCE_REVIEWER" || role === "FINANCE_ADMIN";
 export const isAdmin = (role: Role) => role === "FINANCE_ADMIN";
 export const seesRegister = (role: Role) => role !== "REQUESTER";
+/** Mirrors the server: among read-only accounts, only an auditor may take the register away as a file. */
+export const canExport = (role: Role, viewer?: ViewerProfile) =>
+  role === "VIEW_ONLY" ? viewer === "AUDITOR" : seesRegister(role);
 
 /** How a role's name reads next to a person's: "Jane Doe — Director" for an approver with a tier. */
-export const positionLabel = (role: Role, tier?: Tier) =>
-  role === "APPROVER" && tier ? TIER_LABELS[tier] : ROLE_LABELS[role];
+export const positionLabel = (role: Role, tier?: Tier, viewer?: ViewerProfile) =>
+  role === "APPROVER" && tier
+    ? TIER_LABELS[tier]
+    : role === "VIEW_ONLY" && viewer
+      ? `${VIEWER_LABELS[viewer]} · View Only`
+      : ROLE_LABELS[role];
 
 export type SessionUser = {
   name: string;
   email: string;
   role: Role;
   tier?: Tier;
+  viewer?: ViewerProfile;
   district: string;
   school: string;
 };
@@ -220,7 +237,7 @@ export const decideRequest = (id: string, action: "approve" | "reject", comment:
 
 export type Profile = {
   firstName: string; lastName: string; email: string; contactEmail: string;
-  role: Role; tier?: Tier; district?: string; school?: string;
+  role: Role; tier?: Tier; viewer?: ViewerProfile; district?: string; school?: string;
 };
 
 export const getProfile = () => send<{ profile: Profile }>("/api/profile").then(p => p.profile);
@@ -228,7 +245,7 @@ export const getProfile = () => send<{ profile: Profile }>("/api/profile").then(
 export const saveProfile = (fields: { firstName: string; lastName: string; contactEmail: string }) =>
   send<{ profile: Profile }>("/api/profile", { method: "PUT", body: JSON.stringify(fields) }).then(p => p.profile);
 
-export type DirectoryUser = { id: string; name: string; email: string; contactEmail: string; role: Role; tier?: Tier };
+export type DirectoryUser = { id: string; name: string; email: string; contactEmail: string; role: Role; tier?: Tier; viewer?: ViewerProfile };
 
 export const listUsers = () => send<{ users: DirectoryUser[] }>("/api/users").then(p => p.users);
 

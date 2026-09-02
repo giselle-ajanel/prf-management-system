@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { authenticated } from "@/lib/api";
+import { authenticated, json } from "@/lib/api";
 import { line } from "@/lib/sanitize";
-import { listRequests, type StoredRequest } from "@/lib/store";
+import { canExport, listRequests, type StoredRequest } from "@/lib/store";
 import { exportFilename, toCsv } from "@ds/export";
 import type { Request } from "@ds/types";
 
@@ -26,8 +26,12 @@ const toExportShape = (request: StoredRequest): Request =>
   }) as unknown as Request;
 
 export const GET = authenticated(
-  { name: "requests.export", authority: "register" },
+  { name: "requests.export" },
   async ({ session, request }) => {
+    // Among read-only accounts only the auditor may take the register away; everyone else reads on screen.
+    if (!canExport(session.role, session.viewer)) {
+      return json({ error: "This account cannot export the register" }, { status: 403 }) as NextResponse;
+    }
     const status = line(request.nextUrl.searchParams.get("status") || "", "Status", 40, false);
     const month = line(request.nextUrl.searchParams.get("month") || "", "Month", 10, false);
 

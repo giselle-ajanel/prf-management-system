@@ -109,6 +109,8 @@ const cases = [
     attachments: [{ id: "a1", name: "Northstar quote.pdf", size: 284_119, type: "application/pdf" }],
   })],
   ["Finance.unfiltered", () => createElement(ds.Finance, { requests: ds.sampleRequests, all: ds.sampleRequests, filters: ds.emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
+  // The register as a non-auditor read-only account sees it: everything readable, no export.
+  ["Finance.no-export", () => createElement(ds.Finance, { requests: ds.sampleRequests, all: ds.sampleRequests, filters: ds.emptyFinanceFilters, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts, canExport: false })],
   ["Finance.no-matches", () => createElement(ds.Finance, { requests: [], all: ds.sampleRequests, filters: { ...ds.emptyFinanceFilters, query: "zzz" }, setFilters: noop, onOpen: noop, districts: ds.sampleDistricts })],
   ["QueueItem.awaiting", () => createElement(ds.QueueItem, { request: awaiting, onOpen: noop })],
   ["QueueItem.divvy", () => createElement(ds.QueueItem, { request: { ...awaiting, paymentType: "divvy" }, onOpen: noop })],

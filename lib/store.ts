@@ -46,6 +46,26 @@ export const ROLE_LABEL: Record<Role, string> = {
   VIEW_ONLY: "View Only",
 };
 
+/**
+ * Which kind of viewer a View Only account is.
+ *
+ * The five come from how people actually use the spend platform: an auditor pulling records for an
+ * external review, a bookkeeper reconciling, a staff member watching their own budget line, a travel
+ * manager tracking trip spending, an assistant looking things up for someone else. They differ in one
+ * respect that matters — an auditor can take the register away with them — and in nothing else.
+ */
+export type ViewerProfile = "AUDITOR" | "BOOKKEEPER" | "MEMBER" | "TRAVEL_MANAGER" | "ASSISTANT";
+
+export const VIEWER_PROFILES: ViewerProfile[] = ["AUDITOR", "BOOKKEEPER", "MEMBER", "TRAVEL_MANAGER", "ASSISTANT"];
+
+export const VIEWER_LABEL: Record<ViewerProfile, string> = {
+  AUDITOR: "Auditor",
+  BOOKKEEPER: "Bookkeeper",
+  MEMBER: "Member",
+  TRAVEL_MANAGER: "Travel Manager",
+  ASSISTANT: "Assistant",
+};
+
 /** The signing ladder. Only meaningful for an Approver; everyone else carries no tier. */
 export type Tier = "MANAGER" | "DIRECTOR" | "SENIOR_DIRECTOR" | "CHIEF" | "CFO" | "CEO";
 
@@ -97,6 +117,29 @@ export const isAdmin = (role: Role) => role === "FINANCE_ADMIN";
 /** Read the whole organisation's submitted requests rather than only one's own. */
 export const seesRegister = (role: Role) => role !== "REQUESTER";
 
+/**
+ * Who may take the register away as a file.
+ *
+ * Everyone who works the requests can export. Among read-only accounts only the auditor can: exporting is
+ * how an external audit happens, and it is also how a whole organisation's spending leaves the building,
+ * so the other four viewer profiles read on screen and nothing more.
+ */
+export const canExport = (role: Role, viewer?: ViewerProfile) =>
+  role === "VIEW_ONLY" ? viewer === "AUDITOR" : seesRegister(role);
+
+/**
+ * The single gate on changing a purchase request.
+ *
+ * Called first by every mutating operation in this module, so a read-only account is refused with 403
+ * before any question of ownership or status is even asked. Hiding the buttons is a courtesy; this is the
+ * rule.
+ */
+function assertCanMutateRequests(actor: Actor): void {
+  if (actor.role === "VIEW_ONLY") {
+    throw new ForbiddenError("This is a view-only account and cannot change purchase requests");
+  }
+}
+
 // ---- reading forward from the previous model ---------------------------------------------------------
 // The ladder used to be the role itself, and there was one approval gate rather than two. Stores written
 // then are translated on read so an existing deployment keeps working.
@@ -140,7 +183,7 @@ export type Status =
   | "Approved";
 
 /** Whoever is performing the operation. Structurally satisfied by a Session, so no import cycle. */
-export type Actor = { userId: string; email: string; name: string; role: Role; tier?: Tier };
+export type Actor = { userId: string; email: string; name: string; role: Role; tier?: Tier; viewer?: ViewerProfile };
 
 export type StoredUser = {
   id: string;
@@ -155,6 +198,8 @@ export type StoredUser = {
   role: Role;
   /** Signing band. Only meaningful for an Approver; ignored for every other role. */
   tier?: Tier;
+  /** Which kind of viewer. Only meaningful for a View Only account. */
+  viewer?: ViewerProfile;
   district: string;
   school: string;
   passwordHash: string;
@@ -711,7 +756,7 @@ export async function getRequest(actor: Actor, id: string): Promise<StoredReques
 export async function createDraft(actor: Actor, input: DraftInput): Promise<StoredRequest> {
   // Everyone who works here buys things, so every role except a read-only viewer can raise a request. An
   // approver's own request is escalated past them at submission, and they still cannot approve it.
-  if (!canRequest(actor.role)) throw new ForbiddenError("A view-only account cannot create purchase requests");
+  assertCanMutateRequests(actor);
   return transaction(database => {
     const id = nextPrfNumber(database.requests);
     const stamp = now();
@@ -738,6 +783,7 @@ export async function createDraft(actor: Actor, input: DraftInput): Promise<Stor
 }
 
 export async function updateDraft(actor: Actor, id: string, input: DraftInput): Promise<StoredRequest> {
+  assertCanMutateRequests(actor);
   return transaction(database => {
     const request = locate(database, actor, id);
     if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can edit this PRF");
@@ -751,6 +797,7 @@ export async function updateDraft(actor: Actor, id: string, input: DraftInput): 
 }
 
 export async function deleteDraft(actor: Actor, id: string): Promise<void> {
+  assertCanMutateRequests(actor);
   await transaction(database => {
     const request = locate(database, actor, id);
     if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can delete this PRF");
@@ -764,6 +811,7 @@ export async function deleteDraft(actor: Actor, id: string): Promise<void> {
 }
 
 export async function submitRequest(actor: Actor, id: string, signature: string): Promise<StoredRequest> {
+  assertCanMutateRequests(actor);
   return transaction(database => {
     const request = locate(database, actor, id);
     if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can submit this PRF");
@@ -824,6 +872,7 @@ export async function submitRequest(actor: Actor, id: string, signature: string)
  * rather than on a proposal that might still be sent back.
  */
 export async function decideRequest(actor: Actor, id: string, decision: Decision): Promise<StoredRequest> {
+  assertCanMutateRequests(actor);
   if (!isApprover(actor.role)) throw new ForbiddenError("Only approvers can sign off purchase requests");
   return transaction(database => {
     const request = locate(database, actor, id);
@@ -916,6 +965,7 @@ export async function decideRequest(actor: Actor, id: string, decision: Decision
  * mechanism, not a hidden button.
  */
 export async function financeReview(actor: Actor, id: string, decision: Decision): Promise<StoredRequest> {
+  assertCanMutateRequests(actor);
   if (!isFinance(actor.role)) throw new ForbiddenError("Only Finance can complete the compliance review");
   return transaction(database => {
     const request = locate(database, actor, id);
@@ -1014,6 +1064,7 @@ function returnToRequester(
 
 /** Attaching is an edit: same owner, same statuses that allow any other change to the record. */
 export async function attachToRequest(actor: Actor, id: string, attachment: StoredAttachment): Promise<StoredRequest> {
+  assertCanMutateRequests(actor);
   return transaction(database => {
     const request = locate(database, actor, id);
     if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can attach files to this PRF");
@@ -1029,6 +1080,7 @@ export async function attachToRequest(actor: Actor, id: string, attachment: Stor
 }
 
 export async function detachFromRequest(actor: Actor, id: string, attachmentId: string): Promise<StoredAttachment> {
+  assertCanMutateRequests(actor);
   return transaction(database => {
     const request = locate(database, actor, id);
     if (request.ownerId !== actor.userId) throw new ForbiddenError("Only the requester can remove files from this PRF");

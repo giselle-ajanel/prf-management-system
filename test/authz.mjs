@@ -89,7 +89,8 @@ const manager = { userId: "u-mgr", email: "manager@woodcraftrangers.org", name: 
 const chief = { userId: "u-chief", email: "chief@woodcraftrangers.org", name: "Daniel Okafor", role: "APPROVER", tier: "CHIEF" };
 const finance = { userId: "u-fin", email: "finance@woodcraftrangers.org", name: "Tomas Reyes", role: "FINANCE_REVIEWER" };
 const financeAdmin = { userId: "u-fadm", email: "financeadmin@woodcraftrangers.org", name: "Elena Petrov", role: "FINANCE_ADMIN" };
-const viewer = { userId: "u-view", email: "viewonly@woodcraftrangers.org", name: "Auditor Reid", role: "VIEW_ONLY" };
+const viewer = { userId: "u-view", email: "member@woodcraftrangers.org", name: "Sam Whitfield", role: "VIEW_ONLY", viewer: "MEMBER" };
+const auditor = { userId: "u-audit", email: "auditor@woodcraftrangers.org", name: "Nadia Reid", role: "VIEW_ONLY", viewer: "AUDITOR" };
 
 const draft = (overrides = {}) => ({
   vendor: "Northstar Learning",
@@ -305,6 +306,50 @@ await check("accounts stored under the old ladder-as-role model read forward", (
   assert.equal(S.normalizeStatus("Approved"), "Approved");
 });
 
+// ---- read-only accounts ----------------------------------------------------------------------------
+
+await check("only an auditor may take the register away", () => {
+  assert.equal(S.canExport("VIEW_ONLY", "AUDITOR"), true);
+  for (const profile of ["BOOKKEEPER", "MEMBER", "TRAVEL_MANAGER", "ASSISTANT"]) {
+    assert.equal(S.canExport("VIEW_ONLY", profile), false, `${profile} should not export`);
+  }
+  assert.equal(S.canExport("VIEW_ONLY", undefined), false);
+  // Everyone who works the requests can export; a plain requester has no register to export.
+  assert.equal(S.canExport("FINANCE_REVIEWER"), true);
+  assert.equal(S.canExport("APPROVER"), true);
+  assert.equal(S.canExport("REQUESTER"), false);
+});
+
+await check("no read-only account can change anything, whatever its profile", async () => {
+  const target = await S.createDraft(alice, S.input.parseDraft(draft()));
+  const submitted = await S.submitRequest(alice, target.id, "Alice Requester");
+
+  for (const account of [viewer, auditor]) {
+    // Creating, editing, deleting, submitting...
+    await rejects(() => S.createDraft(account, S.input.parseDraft(draft())), "view-only account");
+    await rejects(() => S.updateDraft(account, submitted.id, S.input.parseDraft(draft())), "view-only account");
+    await rejects(() => S.deleteDraft(account, submitted.id), "view-only account");
+    await rejects(() => S.submitRequest(account, submitted.id, "Someone"), "view-only account");
+    // ...deciding at either gate...
+    await rejects(() => S.decideRequest(account, submitted.id, { action: "approve", comment: "", signature: "x" }), "view-only account");
+    await rejects(() => S.decideRequest(account, submitted.id, { action: "reject", comment: "no", signature: "" }), "view-only account");
+    await rejects(() => S.financeReview(account, submitted.id, { action: "approve", comment: "", signature: "x" }), "view-only account");
+    // ...and attaching or removing documents.
+    await rejects(() => S.attachToRequest(account, submitted.id, { id: "x", name: "f.pdf", size: 1, type: "application/pdf", uploadedAt: "", uploadedBy: "" }), "view-only account");
+    await rejects(() => S.detachFromRequest(account, submitted.id, "x"), "view-only account");
+    // Reading is exactly what they can do.
+    assert.ok((await S.listRequests(account)).some(entry => entry.id === submitted.id));
+    assert.equal((await S.getRequest(account, submitted.id)).id, submitted.id);
+  }
+});
+
+await check("a read-only account still cannot see someone else's draft", async () => {
+  const secret = await S.createDraft(alice, S.input.parseDraft(draft({ vendor: "Private" })));
+  await rejects(() => S.getRequest(auditor, secret.id), "NotFoundError");
+  await rejects(() => S.getRequest(viewer, secret.id), "NotFoundError");
+  await S.deleteDraft(alice, secret.id);
+});
+
 // ---- status machine ---// ---- status machine --------------------------------------------------------------------------------
 
 await check("the two gates are the only route to Approved, and nothing returns to Draft", () => {
@@ -333,7 +378,7 @@ await check("everyone but a read-only viewer can raise a request", async () => {
   const byApprover = await S.createDraft(approver, S.input.parseDraft(draft()));
   assert.equal(byApprover.ownerId, approver.userId);
   await S.deleteDraft(approver, byApprover.id);
-  await rejects(() => S.createDraft(viewer, S.input.parseDraft(draft())), "view-only account cannot create");
+  await rejects(() => S.createDraft(viewer, S.input.parseDraft(draft())), "view-only account");
 });
 
 await check("another requester cannot see the draft in their list", async () => {
@@ -345,10 +390,12 @@ await check("another requester gets Not Found rather than Forbidden for someone 
   await rejects(() => S.getRequest(bob, alicePrf.id), "NotFoundError");
 });
 
-await check("an approver does not see a draft, even as the only request in the system", async () => {
-  // Drafts are the requester's private working copy; the queue starts when they submit.
-  assert.equal((await S.listRequests(approver)).length, 0);
-  assert.equal((await S.listRequests(finance)).length, 0);
+await check("no draft of anyone else's ever appears in another account's list", async () => {
+  // A property rather than a count: drafts are the author's private working copy, whatever else exists.
+  for (const account of [approver, manager, finance, financeAdmin, viewer, auditor, bob]) {
+    const drafts = (await S.listRequests(account)).filter(entry => entry.status === "Draft" && entry.ownerId !== account.userId);
+    assert.equal(drafts.length, 0, `${account.role} could see someone else's draft`);
+  }
 });
 
 await check("another requester cannot edit or delete a PRF that is not theirs", async () => {
@@ -543,7 +590,7 @@ await check("gate 1 is the approvers' queue, and Finance cannot see into it", as
   assert.equal(done.status, "Approved");
   // A read-only viewer sees the completed record and cannot act on it.
   assert.ok((await S.listRequests(viewer)).some(entry => entry.id === waiting.id));
-  await rejects(() => S.decideRequest(viewer, waiting.id, { action: "reject", comment: "no", signature: "" }), "Only approvers");
+  await rejects(() => S.decideRequest(viewer, waiting.id, { action: "reject", comment: "no", signature: "" }), "view-only account");
 });
 
 await check("a returned request follows whoever returned it, from either gate", async () => {

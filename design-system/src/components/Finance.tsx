@@ -19,6 +19,11 @@ export type FinanceFilters = {
 };
 
 export type FinanceProps = {
+  /**
+   * Whether this viewer may take the register away as a file. False for every read-only account except an
+   * auditor — reading the register on screen and walking out with it are different acts.
+   */
+  canExport?: boolean;
   /** Rows to display — the caller applies `filters` before passing them in. */
   requests: Request[];
   /** Every request, filtered or not. Drives the three metric tiles and the funding dropdown. */
@@ -68,6 +73,7 @@ export function Finance({
   districts,
   months = DEFAULT_MONTHS,
   statuses = DEFAULT_STATUSES,
+  canExport = true,
 }: FinanceProps) {
   const schools = filters.district ? districts[filters.district] : Object.values(districts).flat();
   const cleared = all.filter(r => r.status === "Approved").reduce((s, r) => s + r.amount, 0);
@@ -78,11 +84,13 @@ export function Finance({
         title="Finance Command Center"
         copy="District → School → Individual PRF. Search every cycle from one controlled register."
         action={
-          <ExportButton
-            requests={requests}
-            filters={{ status: filters.status, site: filters.school || filters.district, month: filters.month }}
-            prefix="PRF-finance"
-          />
+          canExport ? (
+            <ExportButton
+              requests={requests}
+              filters={{ status: filters.status, site: filters.school || filters.district, month: filters.month }}
+              prefix="PRF-finance"
+            />
+          ) : undefined
         }
       />
       <div className="financeMetrics">

@@ -28,7 +28,11 @@ passwords, prints them to the server console, and writes them to `.secure-data/s
 | `ceo@woodcraftrangers.org` | Approver · CEO | any amount |
 | `finance@woodcraftrangers.org` | Finance Reviewer | — (gate 2) |
 | `financeadmin@woodcraftrangers.org` | Finance Administrator | — (administers) |
-| `viewonly@woodcraftrangers.org` | View Only | — (read-only) |
+| `auditor@woodcraftrangers.org` | View Only · Auditor | — (read-only **+ export**) |
+| `bookkeeper@woodcraftrangers.org` | View Only · Bookkeeper | — (read-only) |
+| `member@woodcraftrangers.org` | View Only · Member | — (read-only) |
+| `travelmanager@woodcraftrangers.org` | View Only · Travel Manager | — (read-only) |
+| `assistant@woodcraftrangers.org` | View Only · Assistant | — (read-only) |
 
 Addresses stay on `woodcraftrangers.org` because `PRF_ALLOWED_EMAIL_DOMAINS` is configured for it — an
 account on another domain would be refused the moment this sits behind SSO.
@@ -56,6 +60,14 @@ Approver and a Finance Reviewer are both requesters who can do more:
   on requests an approver has already signed.
 - **Finance Administrator** — the full submitted register, exports, audit reporting, role assignment.
 - **View Only** — read-only visibility across the organisation. Cannot submit, edit, approve or reject.
+  Five viewer profiles sit under it — Auditor, Bookkeeper, Member, Travel Manager, Assistant — which differ
+  in exactly one respect: **only the Auditor can export.** Reading the register on screen and walking out
+  with the organisation's whole spending history are different acts, so the export is the auditor's alone.
+
+Every read-only account is refused with **403** on any state change — creating, editing, deleting,
+submitting, either approval gate, and attaching or removing documents. That refusal lives in the data
+layer, checked before any question of ownership or status is asked; hiding the buttons is the courtesy on
+top of it.
 
 Approvers carry their own signing limit, and authority is checked against the amount rather than against
 merely being an approver: a Manager cannot sign off a $50,000 request just because the queue showed it to

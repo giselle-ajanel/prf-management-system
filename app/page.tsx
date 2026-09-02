@@ -10,11 +10,12 @@ import {
   type Request, type Status, type View,
 } from "@ds";
 import {
-  ROLE_LABELS, SessionEndedError, assignRole, canRequest, createRequest, decideRequest as decidePrf,
+  ROLE_LABELS, SessionEndedError, assignRole, canExport, canRequest, createRequest, decideRequest as decidePrf,
   deleteRequest as deletePrf, fetchNotifications, fetchRequests, financeReview, getProfile, getSession,
   isAdmin, isApprover as roleApproves, isFinance, listUsers, login, logout,
   markNotificationsRead as markRead, positionLabel, removeAttachment, saveProfile, seesRegister,
   submitRequest as submitPrf, toViewRequest, updateRequest, uploadAttachment,
+  VIEWER_LABELS,
   type DirectoryUser, type Profile, type Role, type ServerNotification, type SessionInfo,
 } from "@/lib/prf-client";
 
@@ -456,13 +457,14 @@ export default function PurchaseRequestHub() {
     : queueStatuses.includes(request.status));
   // Action buttons render only where a decision is actually available at this gate.
   const actionable:Status = financeRole ? "Pending Finance Review" : "Pending Supervisor Approval";
-  const reviewing = Boolean(selected&&current==="approvals"&&selected.status===actionable&&(financeRole?isFinance(role):roleApproves(role)));
+  // A read-only account never reaches a decision surface: the record opens as the read-only modal instead.
+  const reviewing = Boolean(!readOnly&&selected&&current==="approvals"&&selected.status===actionable&&(financeRole?isFinance(role):roleApproves(role)));
 
   return <main>
     <AppHeader
       items={navItems}
       active={current} onNavigate={id=>{const next=id as View;if(next==="profile")void openProfile();else navigate(next)}} onBrandClick={()=>navigate("overview")}
-      initials={initialsOf(user.name)} userName={user.name} userRole={positionLabel(user.role,user.tier)} userOrg={`${user.district}${user.school?` — ${user.school}`:""}`}
+      initials={initialsOf(user.name)} userName={user.name} userRole={positionLabel(user.role,user.tier,user.viewer)} userOrg={`${user.district}${user.school?` — ${user.school}`:""}`}
       actions={<>
         <NotificationBell notifications={notifications} onMarkAllRead={()=>{setNotifications(markAllRead);void markRead()}} onOpen={id=>{const found=requests.find(entry=>entry.id===id);if(found)setSelected(found)}}/>
         <button type="button" className="signOut" onClick={()=>void signOut()} disabled={authBusy}>Sign out</button>
@@ -476,8 +478,10 @@ export default function PurchaseRequestHub() {
         copy={isApprover
           ?"Review what is waiting on your signature, approve or send it back with a comment, and export the register for reporting."
           :"Create, route, and track every purchase request in one friendly workspace—without chasing forms or email threads."}
-        primaryLabel={isApprover?"Open review queue":"Start a new request"} onPrimary={()=>isApprover?navigate("approvals"):startNew()}
-        secondaryLabel={isApprover?"Finance register":"View my requests"} onSecondary={()=>navigate(isApprover?"finance":"requests")}
+        primaryLabel={readOnly?"Browse the register":isApprover?"Open review queue":"Start a new request"}
+        onPrimary={()=>readOnly?navigate("finance"):isApprover?navigate("approvals"):startNew()}
+        secondaryLabel={readOnly?"Recent activity":isApprover?"Finance register":"View my requests"}
+        onSecondary={()=>navigate(readOnly?"approvals":isApprover?"finance":"requests")}
         trailCard={requests[0]?{id:requests[0].id,status:requests[0].status,note:`${requests[0].requester} · ${requests[0].school||requests[0].district}`}:undefined}
       />
       <Summary requests={requests}/>
@@ -487,12 +491,14 @@ export default function PurchaseRequestHub() {
           ? <ReviewPanel eyebrow="YOUR QUEUE" title={queue.length?`${queue.length} request${queue.length===1?" is":"s are"} ready for your review.`:"Nothing is waiting on you."}
               copy={queue.length?"Each one has been signed by its requester and routed to you by the approved dollar thresholds.":"Approved and returned requests stay searchable in the Finance register."}
               amount={queue.length?money(queue.reduce((sum,request)=>sum+request.amount,0)):""} actionLabel="Open the queue →" onAction={()=>navigate("approvals")}/>
-          : <TipPanel title="Help requests move faster" copy="Brief descriptions are flagged before submission. Include specific items, quantities, intended users, and educational purpose." actionLabel="Create a clear request →" onAction={startNew}/>}
+          : readOnly
+            ? <TipPanel title="Read-only access" copy={`You are signed in as ${positionLabel(user.role,user.tier,user.viewer)}. You can open any submitted request, its documents and its full history. Submitting, approving and editing are not available on this account.`} actionLabel="Browse the register →" onAction={()=>navigate("finance")}/>
+            : <TipPanel title="Help requests move faster" copy="Brief descriptions are flagged before submission. Include specific items, quantities, intended users, and educational purpose." actionLabel="Create a clear request →" onAction={startNew}/>}
       </ActionRow>
     </>}
 
     {current==="requests"&&!isApprover&&<section className="page">
-      <PageHead eyebrow="Requester workspace" title="My Requests" copy="Resume drafts, track approvals, and retrieve your completed requests." action={<div className="headActions"><MonthFilter value={monthFilter} onChange={setMonthFilter}/><button onClick={startNew}>＋ New request</button></div>}/>
+      <PageHead eyebrow="Requester workspace" title="My Requests" copy="Resume drafts, track approvals, and retrieve your completed requests." action={<div className="headActions"><MonthFilter value={monthFilter} onChange={setMonthFilter}/>{canRequest(role)&&<button onClick={startNew}>＋ New request</button>}</div>}/>
       <Summary requests={requests}/>
       <RequestTrail requests={monthFilter?requests.filter(request=>request.approvedAt?.startsWith(monthFilter)):requests} onOpen={setSelected} onResume={resume} onDelete={askDelete} title={monthFilter?`Approved in ${monthLabel(monthFilter)}`:"All requests"}/>
     </section>}
@@ -512,7 +518,7 @@ export default function PurchaseRequestHub() {
       currentUserId={directory?.find(entry=>entry.email===profile.email)?.id}
     />}
 
-    {current==="finance"&&isApprover&&<Finance requests={filtered} all={requests} filters={filters} setFilters={setFilters} onOpen={setSelected} districts={districts}/>}
+    {current==="finance"&&isApprover&&<Finance requests={filtered} all={requests} filters={filters} setFilters={setFilters} onOpen={setSelected} districts={districts} canExport={canExport(role,user.viewer)}/>}
 
     <AppFooter/>
 
