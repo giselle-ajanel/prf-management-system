@@ -61,3 +61,5 @@
 @import "./27-supervisor-review.css";
 /* The sign-in screen and the header sign-out control. */
 @import "./28-login.css";
+/* Editor footer actions, save/failure status colours, and pre-submission validation. */
+@import "./29-editor-validation.css";

@@ -129,6 +129,14 @@ await check("sanitize rejects out-of-range values rather than truncating", () =>
   assert.throws(() => S.sanitize.id("../../etc/passwd", "Request id"), /not a valid identifier/);
 });
 
+await check("script markup cannot survive in a vendor name, and plain text is untouched", () => {
+  const parsed = S.input.parseDraft(draft({ vendor: "<script>alert(1)</script>Northstar" }));
+  assert.equal(parsed.vendor, "scriptalert(1)/scriptNorthstar");
+  assert.ok(!parsed.vendor.includes("<"));
+  // Free text keeps its angle brackets: "<10 students" is a sentence, not an attack.
+  assert.match(S.input.parseDraft(draft({ description: "Kits for <10 students" })).description, /<10 students/);
+});
+
 await check("parseDraft ignores fields the client is not allowed to set", () => {
   const parsed = S.input.parseDraft({
     ...draft(),

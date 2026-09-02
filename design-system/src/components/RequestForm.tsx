@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { AccountingCode, ComboOption } from "../types";
 import { amountOf, isNegative, money, siteKeyOf, vague } from "../utils";
@@ -228,11 +228,19 @@ export function buildSiteOptions(
   ];
 }
 
+/** Colour and icon treatment for the status line above the footer. */
+export type NoticeTone = "success" | "problem";
+
 export type RequestFormProps = {
   form: PrfFormState;
   setForm: (form: PrfFormState) => void;
   /** Validation or status message shown just above the footer actions. */
   notice: string;
+  /**
+   * How that message reads. A saved draft is good news and must not borrow the colours of a failure —
+   * the red "Open Draft saved" banner had people re-saving because they thought something went wrong.
+   */
+  noticeTone?: NoticeTone;
   /** Rows from the accounting workbook, used to populate the site and funding comboboxes. */
   accounting: AccountingCode[];
   /** Loading/among-sites status line beneath the accounting block. */
@@ -244,6 +252,8 @@ export type RequestFormProps = {
   onClose: () => void;
   onSave: (submit: boolean) => unknown;
   onProceed: () => void;
+  /** Deletes the draft being edited. Omit for a PRF that has never been saved — there is nothing to delete. */
+  onDelete?: () => void;
   /** Policy banners. Defaults to {@link DEFAULT_PRF_RULES}. */
   rules?: PrfRule[];
   /** Maps an accounting row's `source` to its group heading. Defaults to {@link DEFAULT_SITE_GROUPS}. */
@@ -288,6 +298,7 @@ export function RequestForm({
   form,
   setForm,
   notice,
+  noticeTone = "problem",
   accounting,
   accountingStatus,
   lastSaved,
@@ -295,6 +306,7 @@ export function RequestForm({
   onClose,
   onSave,
   onProceed,
+  onDelete,
   rules = DEFAULT_PRF_RULES,
   siteGroups = DEFAULT_SITE_GROUPS,
   groupOrder = SITE_GROUP_ORDER,
@@ -383,20 +395,61 @@ export function RequestForm({
     siteName = selected?.siteName || form.school || "";
   const active = rules.filter(rule => rule.applies({ form, siteName, lineItems: form.lineItems }));
   const blocked = active.some(rule => rule.tone === "blocked");
-  const canSubmit = Boolean(
+  /**
+   * Everything that has to be true before a PRF can be submitted, and the sentence to show when it is not.
+   *
+   * This used to be one boolean that disabled the submit button. A disabled button is the worst of both
+   * worlds: it refuses to work and refuses to say why, and people conclude the form is broken. The rules
+   * are unchanged — they are just answerable now, field by field.
+   */
+  const findProblems = (): Record<string, string> => {
+    const problems: Record<string, string> = {};
     // A custom site has no code yet, so the site name stands in for it.
-    (form.siteCode || (form.customSite && form.siteName)) &&
-      form.fundingCode &&
-      form.paymentType &&
-      form.vendor &&
-      amountOf(form.amount) > 0 &&
-      !negativeLines &&
-      !vague(form.description) &&
-      form.requestorName &&
-      form.requestorSignature &&
-      form.requestorDate &&
-      !blocked,
-  );
+    if (!form.siteCode && !(form.customSite && form.siteName)) problems.site = "Choose a site or department before submitting.";
+    if (!form.fundingCode) problems.funding = "Choose the funding source this purchase draws on.";
+    if (!form.paymentType) problems.payment = "Select how this purchase will be paid.";
+    if (!form.vendor.trim()) problems.vendor = "Enter the vendor, payee, or cardholder.";
+    if (!form.lineItems.some(line => line.description.trim())) {
+      problems.lines = "Add at least one item, including how many and who it is for.";
+    } else if (vague(form.description)) {
+      problems.lines = "Say what the items are, how many, and their educational purpose.";
+    }
+    if (negativeLines) problems.lines = "Line amounts cannot be negative.";
+    if (amountOf(form.amount) <= 0) problems.amount = "Enter an amount for at least one line.";
+    if (!form.requestorName.trim()) problems.requestorName = "Print your name.";
+    if (!form.requestorSignature) problems.signature = "Sign before submitting.";
+    if (!form.requestorDate) problems.requestorDate = "Add the date.";
+    if (blocked) problems.rules = "Resolve the highlighted policy issue above before submitting.";
+    return problems;
+  };
+
+  const [problems, setProblems] = useState<Record<string, string>>({});
+  const [alert, setAlert] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const submit = () => {
+    const found = findProblems();
+    setProblems(found);
+    if (!Object.keys(found).length) {
+      setAlert("");
+      onProceed();
+      return;
+    }
+    setAlert("Please complete all highlighted required fields before submitting.");
+    // Scroll to the first thing that needs attention rather than leaving people hunting for the red.
+    window.requestAnimationFrame(() => {
+      const first = formRef.current?.querySelector<HTMLElement>("[data-invalid='true']");
+      first?.scrollIntoView({ behavior: "smooth", block: "center" });
+      first?.querySelector<HTMLElement>("input, textarea, select, button")?.focus({ preventScroll: true });
+    });
+  };
+
+  /** Attributes that mark a field group as invalid, for both the stylesheet and assistive technology. */
+  const flag = (field: string) =>
+    problems[field] ? { "data-invalid": "true" as const, "aria-invalid": true as const } : {};
+
+  const message = (field: string) =>
+    problems[field] ? <p className="fieldError">{problems[field]}</p> : null;
 
   return (
     <div className="modalBackdrop prfEditorBackdrop">
@@ -417,12 +470,20 @@ export function RequestForm({
           </button>
         </header>
         <form
+          ref={formRef}
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
-            if (canSubmit) onProceed();
+            submit();
           }}
           className="prfPaper"
+          noValidate
         >
+          {alert && (
+            <div className="submitAlert" role="alert">
+              <strong>{alert}</strong>
+              <span>{Object.keys(problems).length} field{Object.keys(problems).length === 1 ? "" : "s"} need attention.</span>
+            </div>
+          )}
           <section className="prfHeader">
             <div className="prfBrand">
               {/* Fragments, not wrapper elements: the original markup is bare text separated by <br/>,
@@ -450,6 +511,7 @@ export function RequestForm({
             </div>
           </section>
           <section className="prfAccounting">
+            <div className="fieldGroup" {...flag("site")}>
             <SearchableCombobox
               label="SITE"
               value={siteKey}
@@ -462,6 +524,9 @@ export function RequestForm({
               customTag="custom site"
               placeholder="Search all sites by name or code, or type an unlisted one…"
             />
+            {message("site")}
+            </div>
+            <div className="fieldGroup" {...flag("funding")}>
             <SearchableCombobox
               label="FUNDING SOURCE"
               value={form.fundingCode}
@@ -483,6 +548,8 @@ export function RequestForm({
               }
             />
             <small>{accountingStatus}</small>
+            {message("funding")}
+            </div>
             {form.customSite && (
               <RuleBanner
                 tone="info"
@@ -491,7 +558,7 @@ export function RequestForm({
               />
             )}
           </section>
-          <fieldset className="paymentTypes">
+          <fieldset className="paymentTypes" {...flag("payment")}>
             <legend>PAYMENT TYPE — SELECT ONE</legend>
             {paymentTypes.map(([value, label]) => (
               <label key={value}>
@@ -505,12 +572,14 @@ export function RequestForm({
                 {label}
               </label>
             ))}
+            {message("payment")}
           </fieldset>
           <section className="vendorBlock">
             <h3>Vendor*/Payee/Cardholder:</h3>
-            <label>
+            <label {...flag("vendor")}>
               Name:
               <input value={form.vendor} onChange={event => update({ vendor: event.target.value })} />
+              {message("vendor")}
             </label>
             <label>
               Address:
@@ -525,7 +594,7 @@ export function RequestForm({
               <input type="email" value={form.vendorEmail} onChange={event => update({ vendorEmail: event.target.value })} />
             </label>
           </section>
-          <div className="lineTableWrap">
+          <div className="lineTableWrap" {...flag("lines")}>
             <table className="nativeLineTable">
               <thead>
                 <tr>
@@ -587,6 +656,8 @@ export function RequestForm({
                 </tr>
               </tfoot>
             </table>
+            {message("lines")}
+            {message("amount")}
           </div>
           {active.map(rule => (
             <RuleBanner key={rule.id} tone={rule.tone} title={rule.title} message={rule.message} />
@@ -600,23 +671,28 @@ export function RequestForm({
           )}
           <section className="signatureGrid">
             <div>
-              <label>
+              <label {...flag("requestorName")}>
                 Requestor Print Name
                 <input value={form.requestorName} onChange={event => update({ requestorName: event.target.value })} />
+                {message("requestorName")}
               </label>
-              <SignatureField
-                value={form.requestorSignature}
-                mode={form.signatureMode as SignatureMode}
-                onMode={value => update({ signatureMode: value, requestorSignature: "" })}
-                onChange={value => update({ requestorSignature: value })}
-              />
-              <label>
+              <div className="fieldGroup" {...flag("signature")}>
+                <SignatureField
+                  value={form.requestorSignature}
+                  mode={form.signatureMode as SignatureMode}
+                  onMode={value => update({ signatureMode: value, requestorSignature: "" })}
+                  onChange={value => update({ requestorSignature: value })}
+                />
+                {message("signature")}
+              </div>
+              <label {...flag("requestorDate")}>
                 Date
                 <input
                   type="date"
                   value={form.requestorDate}
                   onChange={event => update({ requestorDate: event.target.value })}
                 />
+                {message("requestorDate")}
               </label>
             </div>
             <div className="supervisorBlock">
@@ -634,14 +710,24 @@ export function RequestForm({
               </label>
             </div>
           </section>
-          {notice && <div className="formNotice">{notice}</div>}
+          {notice && (
+            <div className={`formNotice ${noticeTone === "success" ? "isSuccess" : "isProblem"}`}>
+              {noticeTone === "success" && <span aria-hidden="true">✓</span>}
+              {notice}
+            </div>
+          )}
           <footer className="editorActions">
+            {/* Destructive action sits at the far left, apart from the two forward actions, so it is never
+                the button someone reaches for on the way to submitting. */}
+            {onDelete && (
+              <button type="button" className="deleteDraft" onClick={onDelete}>
+                Delete Draft
+              </button>
+            )}
             <button type="button" className="secondary" onClick={() => onSave(false)}>
               Save Open Draft
             </button>
-            <button type="submit" disabled={!canSubmit}>
-              Sign &amp; Submit for Approval
-            </button>
+            <button type="submit">Sign &amp; Submit for Approval</button>
           </footer>
         </form>
       </section>

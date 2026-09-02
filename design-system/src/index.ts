@@ -110,6 +110,7 @@ export {
   type PrfLineDraft,
   type PrfRule,
   type PrfRuleContext,
+  type NoticeTone,
 } from "./components/RequestForm";
 
 // Components assembled from markup that was written inline in the original page rather than extracted
@@ -130,6 +131,7 @@ export { QueueItem, type QueueItemProps } from "./components/QueueItem";
 export { StatCard, type StatCardProps, type StatTone } from "./components/StatCard";
 export { RuleBanner, type RuleBannerProps, type RuleTone } from "./components/RuleBanner";
 export { LoginScreen, type LoginScreenProps, type Credentials } from "./components/LoginScreen";
+export { ConfirmDialog, type ConfirmDialogProps } from "./components/ConfirmDialog";
 export {
   SupervisorReview,
   DEFAULT_REVIEW_CHECKLIST,

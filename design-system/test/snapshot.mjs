@@ -77,6 +77,11 @@ const cases = [
   ["ExportButton.empty", () => createElement(ds.ExportButton, { requests: [] })],
   ["NotificationBell.empty", () => createElement(ds.NotificationBell, { notifications: [] })],
   ["RequestForm.custom-site", () => createElement(ds.RequestForm, { ...formBase, form: { ...ds.filledPrfForm(), customSite: true, siteCode: "", siteName: "Vista Verde Academy", school: "Vista Verde Academy" } })],
+  // The two states the footer and status line can be in, and the validation treatment after a refused
+  // submit is exercised through the page snapshots rather than here — it needs a click to exist.
+  ["RequestForm.saved-success", () => createElement(ds.RequestForm, { ...formBase, form: ds.filledPrfForm(), notice: "Open Draft saved. You can close and resume it at any time.", noticeTone: "success", lastSaved: "Saved 9:06 AM" })],
+  ["RequestForm.deletable", () => createElement(ds.RequestForm, { ...formBase, form: ds.filledPrfForm(), onDelete: noop })],
+  ["ConfirmDialog.delete", () => createElement(ds.ConfirmDialog, { destructive: true, title: "Are you sure you want to permanently delete this draft?", message: "PRF-FY27-0002 — City Office Supply will be removed for good. This cannot be undone.", confirmLabel: "Delete draft", cancelLabel: "Keep it", onConfirm: noop, onCancel: noop })],
   ["RequestForm.blank", () => createElement(ds.RequestForm, { ...formBase, form: ds.emptyPrfForm() })],
   ["RequestForm.filled", () => createElement(ds.RequestForm, { ...formBase, form: ds.filledPrfForm(), accounting: ds.sampleAccounting })],
   ["RequestForm.dirty", () => createElement(ds.RequestForm, { ...formBase, form: ds.filledPrfForm(), dirty: true })],

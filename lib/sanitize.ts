@@ -75,11 +75,19 @@ export function optionalText(value: unknown, field: string, max: number): string
   return result;
 }
 
-/** Single-line text: tabs and newlines become spaces. For names, vendors, and anything bound for a CSV cell. */
+/**
+ * Single-line text: tabs and newlines become spaces. For names, vendors, and anything bound for a CSV cell.
+ *
+ * Angle brackets are dropped here as well. React escapes everything it renders, so a stored "<script>" is
+ * inert on the page — but these values also reach a generated PDF and a spreadsheet, and no vendor, club or
+ * site name has a legitimate use for < or >. Free-form description and comment fields keep theirs, because
+ * "<10 students" is a sentence someone will write.
+ */
 export function line(value: unknown, field: string, max: number, required = true): string {
   const flattened = Array.from(clean(value))
     .map(character => (character.charCodeAt(0) === LF || character.charCodeAt(0) === TAB ? " " : character))
     .join("")
+    .replace(/[<>]/g, "")
     .replace(/ {2,}/g, " ")
     .trim();
   if (!flattened && required) throw new FieldError(field, `${field} is required`);

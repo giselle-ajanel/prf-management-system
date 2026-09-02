@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActionRow, AppFooter, AppHeader, Finance, Hero, LoginScreen, MonthFilter, NotificationBell, PageHead,
+  ActionRow, AppFooter, AppHeader, ConfirmDialog, Finance, Hero, LoginScreen, MonthFilter, NotificationBell, PageHead,
   QueueItem, RequestForm, RequestModal, RequestTrail, ReviewPanel, SessionDialog, Summary, SupervisorReview,
   TipPanel, SCHOOL_TAB,
   amountOf, markAllRead, money, monthLabel, notify, siteKeyOf, vague,
@@ -99,7 +99,9 @@ export default function PurchaseRequestHub() {
 
   const [view,setView] = useState<View>("overview"); const [requests,setRequests] = useState<Request[]>([]);
   const [selected,setSelected] = useState<Request|null>(null); const [creating,setCreating] = useState(false); const [auditOpen,setAuditOpen] = useState(false);
-  const [notice,setNotice] = useState("");
+  const [notice,setNotice] = useState(""); const [noticeTone,setNoticeTone] = useState<"success"|"problem">("problem");
+  // A draft awaiting confirmation before it is deleted. Holding the request itself lets the prompt name it.
+  const [pendingDelete,setPendingDelete] = useState<Request|null>(null);
   const [editingId,setEditingId] = useState<string|null>(null); const [accounting,setAccounting] = useState<AccountingCode[]>([]); const [accountingStatus,setAccountingStatus] = useState("Loading every active FY27 site…"); const [lastSaved,setLastSaved] = useState("");
   const [monthFilter,setMonthFilter] = useState("");
   const [notifications,setNotifications] = useState<PrfNotification[]>([]);
@@ -142,6 +144,7 @@ export default function PurchaseRequestHub() {
     try { return await work(); }
     catch(error) {
       if(error instanceof SessionEndedError) { endLocalSession(error.message); return null; }
+      setNoticeTone("problem");
       setNotice(error instanceof Error ? error.message : "Something went wrong");
       return null;
     }
@@ -238,7 +241,7 @@ export default function PurchaseRequestHub() {
     editingIdRef.current=row.id; setEditingId(row.id);
     safeStorage.set(`prf-editor-${row.id}`,JSON.stringify(snapshot));
     setLastSaved("Saved just now");
-    if(!silent) setNotice("Open Draft saved. You can close and resume it at any time.");
+    if(!silent){ setNoticeTone("success"); setNotice("Open Draft saved. You can close and resume it at any time.") }
     return row;
   };
 
@@ -296,9 +299,13 @@ export default function PurchaseRequestHub() {
     setCreating(true);
   };
 
+  // Only an unsubmitted draft can be deleted, and the server enforces the same rule against the signed-in
+  // owner — this check keeps the prompt from appearing for a request that could never be removed.
+  const askDelete = (request:Request) => { if(request.status==="Draft") setPendingDelete(request) };
+
   const deleteDraft = async (request:Request) => {
+    setPendingDelete(null);
     if(request.status!=="Draft") return;
-    if(!window.confirm("Are you sure you want to delete this draft? This action cannot be undone.")) return;
     const done = await guard(()=>deletePrf(request.id)); if(!done) return;
     setRequests(previous=>previous.filter(entry=>entry.id!==request.id));
     safeStorage.remove(`prf-editor-${request.id}`);
@@ -365,7 +372,7 @@ export default function PurchaseRequestHub() {
         trailCard={requests[0]?{id:requests[0].id,status:requests[0].status,note:`${requests[0].requester} · ${requests[0].school||requests[0].district}`}:undefined}
       />
       <Summary requests={requests}/>
-      {!isApprover&&<RequestTrail requests={requests.slice(0,3)} onOpen={setSelected} onResume={resume} onDelete={deleteDraft} title="Your request trail"/>}
+      {!isApprover&&<RequestTrail requests={requests.slice(0,3)} onOpen={setSelected} onResume={resume} onDelete={askDelete} title="Your request trail"/>}
       <ActionRow>
         {isApprover
           ? <ReviewPanel eyebrow="YOUR QUEUE" title={queue.length?`${queue.length} request${queue.length===1?" is":"s are"} ready for your review.`:"Nothing is waiting on you."}
@@ -378,7 +385,7 @@ export default function PurchaseRequestHub() {
     {current==="requests"&&!isApprover&&<section className="page">
       <PageHead eyebrow="Requester workspace" title="My Requests" copy="Resume drafts, track approvals, and retrieve your completed requests." action={<div className="headActions"><MonthFilter value={monthFilter} onChange={setMonthFilter}/><button onClick={startNew}>＋ New request</button></div>}/>
       <Summary requests={requests}/>
-      <RequestTrail requests={monthFilter?requests.filter(request=>request.approvedAt?.startsWith(monthFilter)):requests} onOpen={setSelected} onResume={resume} onDelete={deleteDraft} title={monthFilter?`Approved in ${monthLabel(monthFilter)}`:"All requests"}/>
+      <RequestTrail requests={monthFilter?requests.filter(request=>request.approvedAt?.startsWith(monthFilter)):requests} onOpen={setSelected} onResume={resume} onDelete={askDelete} title={monthFilter?`Approved in ${monthLabel(monthFilter)}`:"All requests"}/>
     </section>}
 
     {current==="approvals"&&isApprover&&<section className="page">
@@ -390,14 +397,17 @@ export default function PurchaseRequestHub() {
 
     <AppFooter/>
 
-    {creating&&!isApprover&&<RequestForm form={form} setForm={setForm} notice={notice} accounting={accounting} accountingStatus={accountingStatus} lastSaved={lastSaved} dirty={dirty} onClose={closeEditor} onSave={()=>void saveNativeDraft()} onProceed={()=>void submitNative()}/>}
-    {creating&&!isApprover&&editingId&&<button className="modalDeleteDraft" onClick={()=>{const draft=requests.find(request=>request.id===editingId);if(draft)void deleteDraft(draft)}}>Delete Draft</button>}
+    {creating&&!isApprover&&<RequestForm form={form} setForm={setForm} notice={notice} noticeTone={noticeTone} accounting={accounting} accountingStatus={accountingStatus} lastSaved={lastSaved} dirty={dirty} onClose={closeEditor} onSave={()=>void saveNativeDraft()} onProceed={()=>void submitNative()}
+      onDelete={editingId?()=>{const draft=requests.find(request=>request.id===editingId);if(draft)askDelete(draft)}:undefined}/>}
 
     {selected&&(reviewing
       ? <SupervisorReview request={selected} onClose={()=>setSelected(null)} onApprove={request=>void decide(request,"approve")} onReject={(request,note)=>void decide(request,"reject",note)}/>
       : <RequestModal request={selected} onClose={()=>{setSelected(null);setAuditOpen(false)}} auditOpen={auditOpen} setAuditOpen={setAuditOpen} canApprove={false} onAction={()=>undefined}/>)}
     {selected&&isApprover&&<button className="financeDownload" onClick={()=>downloadFormattedPrfPdf(selected)}>Download PRF PDF ↓</button>}
 
+    {pendingDelete&&<ConfirmDialog destructive title="Are you sure you want to permanently delete this draft?"
+      message={`${pendingDelete.id} — ${pendingDelete.vendor||"Untitled vendor"} will be removed for good. This cannot be undone.`}
+      confirmLabel="Delete draft" cancelLabel="Keep it" onConfirm={()=>void deleteDraft(pendingDelete)} onCancel={()=>setPendingDelete(null)}/>}
     {sessionExpired&&<SessionDialog onRefresh={()=>void resumeSession()}/>}
   </main>;
 }

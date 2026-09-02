@@ -1,0 +1,61 @@
+/* Editor footer actions, the save/failure status line, and pre-submission field validation. */
+
+/* The delete action is docked in the footer now rather than floating over the paper. It sits at the far
+   left, pushed away from the two forward actions by the auto margin, and stays quiet until hovered. */
+.editorActions{justify-content:flex-start}
+.editorActions .secondary{margin-left:auto}
+/* The footer bar is dark ink, so the ghost treatment is drawn in light values rather than the muted grey
+   used elsewhere — it has to stay legible against #26312f while still reading as the quiet option. */
+.deleteDraft{
+  background:transparent!important;box-shadow:none!important;
+  border:1px solid rgba(255,255,255,.34)!important;color:#e8ded9!important;
+}
+.deleteDraft:hover,.deleteDraft:focus-visible{
+  border-color:#e88a72!important;color:#ffd9cd!important;background:rgba(201,94,72,.22)!important;
+}
+
+/* A saved draft is good news. The old banner used the same coral as a validation failure, which had
+   people re-saving because they thought something had gone wrong. */
+.formNotice{display:flex;align-items:flex-start;gap:9px;border-radius:0 8px 8px 0;line-height:1.5}
+.formNotice.isProblem{border-left:4px solid var(--coral);background:#fbe2dc;color:#7c3324}
+.formNotice.isSuccess{border-left:4px solid #059669;background:#ecfdf5;color:#065f46;font-weight:600}
+.formNotice.isSuccess span{font-weight:800;line-height:1.2}
+
+/* Validation. Marks sit on the field group so the label, the control and the message move together. */
+.fieldGroup{display:block}
+[data-invalid="true"]{
+  border-radius:9px;
+  box-shadow:0 0 0 2px #ef4444;
+  background:#fef2f2;
+}
+[data-invalid="true"] input,[data-invalid="true"] textarea,[data-invalid="true"] select{
+  border-color:#ef4444!important;background:#fff;
+}
+.fieldError{
+  margin:7px 0 0;color:#b91c1c;font-size:11px;font-weight:700;line-height:1.45;
+}
+.lineTableWrap[data-invalid="true"]{padding:6px}
+.paymentTypes[data-invalid="true"]{padding:12px 14px}
+
+/* The banner that appears at the top of the form when a submission is refused. */
+.submitAlert{
+  display:grid;gap:3px;margin:0 0 20px;padding:14px 17px;
+  border:2px solid #ef4444;border-radius:10px;background:#fef2f2;color:#7f1d1d;
+}
+.submitAlert strong{font-size:13px}
+.submitAlert span{font-size:11px;color:#b91c1c}
+
+@media(prefers-reduced-motion:no-preference){
+  [data-invalid="true"]{transition:box-shadow .18s ease,background .18s ease}
+}
+
+/* The application's own confirmation prompt, in place of window.confirm(). */
+.confirmBackdrop{z-index:11500}
+.confirmDialog{
+  width:min(440px,calc(100vw - 36px));padding:26px 28px 22px;
+  background:var(--paper);border-radius:6px 26px 6px 26px;box-shadow:var(--shadow);
+}
+.confirmDialog h2{margin:0 0 9px;font-size:21px;letter-spacing:-.02em}
+.confirmDialog p{margin:0 0 22px;color:var(--muted);font-size:13px;line-height:1.6}
+.confirmActions{display:flex;justify-content:flex-end;gap:11px}
+.confirmDestructive{background:#c9573a!important;color:#fff!important}
