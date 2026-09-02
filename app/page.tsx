@@ -67,7 +67,11 @@ const hasContent = (form: PrfFormState) =>
  */
 const draftPayload = (form: PrfFormState) => ({
   vendor: form.vendor,
+  vendorAddress: form.vendorAddress,
+  vendorCity: form.vendorCity,
+  vendorEmail: form.vendorEmail,
   description: form.description,
+  justification: form.justification,
   district: form.district,
   school: form.siteName || form.school,
   siteCode: form.siteCode,
@@ -78,7 +82,14 @@ const draftPayload = (form: PrfFormState) => ({
   customFunding: form.customFunding,
   lineItems: form.lineItems
     .filter(line => line.description || line.amount)
-    .map(line => ({ description: line.description || "Line item", quantity: 1, unitPrice: amountOf(line.amount) })),
+    .map(line => ({
+      description: line.description || "Line item",
+      quantity: 1,
+      unitPrice: amountOf(line.amount),
+      expenseType: line.expenseType,
+      club: line.club,
+      splitSite: line.splitSite,
+    })),
 });
 
 export default function PurchaseRequestHub() {
@@ -161,6 +172,9 @@ export default function PurchaseRequestHub() {
 
   const signOut = async () => {
     setAuthBusy(true);
+    // Save first. Sign-out clears every local copy of the draft, so anything typed since the last 30-second
+    // checkpoint would otherwise be gone with no way to get it back.
+    if(creating&&hasContent(formRef.current)) await saveNativeDraft(true);
     await logout();
     endLocalSession("You have been signed out.");
     setAuthBusy(false);
@@ -172,7 +186,12 @@ export default function PurchaseRequestHub() {
     const active = () => { if(!sessionExpired) lastActivity.current=Date.now() };
     const events = ["keydown","mousedown","mousemove","touchstart","scroll"] as const;
     events.forEach(event=>window.addEventListener(event,active,{passive:true}));
-    const timer = setInterval(()=>{ if(Date.now()-lastActivity.current>=3600000){ safeStorage.set("prf-active-draft-v1",JSON.stringify(formRef.current)); void saveIndexedDraft(formRef.current,user?.email||""); setSessionExpired(true) } },60000);
+    const timer = setInterval(()=>{ if(Date.now()-lastActivity.current>=3600000){
+      // The same flush as sign-out: the session is about to end, and the dialog it raises leads to the
+      // login screen, which clears local storage. The server copy is the one that has to be current.
+      if(creating&&hasContent(formRef.current)) void saveNativeDraft(true);
+      safeStorage.set("prf-active-draft-v1",JSON.stringify(formRef.current)); void saveIndexedDraft(formRef.current,user?.email||"");
+      setSessionExpired(true) } },60000);
     return()=>{ events.forEach(event=>window.removeEventListener(event,active)); clearInterval(timer) };
   },[sessionExpired]);
 
@@ -252,10 +271,18 @@ export default function PurchaseRequestHub() {
     setEditingId(request.id); editingIdRef.current=request.id;
     const stored=safeStorage.get(`prf-editor-${request.id}`);
     if(stored) try { const saved=JSON.parse(stored); setForm({...freshForm(user?.name||""),...saved,siteKey:saved.siteKey||siteKeyOf(saved.siteCode,saved.school),siteName:saved.siteName||saved.school||""}); setCreating(true); return } catch {}
+    // No local buffer — rebuild from the stored record. Everything the editor holds is saved except the
+    // signature, which is deliberately not restored: signing is an act performed at submission, not a
+    // value that should reappear because a draft was reopened.
     const base=freshForm(user?.name||"");
-    setForm({...base,vendor:request.vendor,description:request.description,amount:String(request.amount),district:request.district,school:request.school,siteKey:siteKeyOf(request.siteCode,request.school),siteName:request.school,siteCode:request.siteCode,fundingCode:request.fundingCode,
-      lineItems:Array.from({length:10},(_,index)=>{const line=request.lineItems[index];return line?{description:line.description,quantity:String(line.quantity),expenseType:"Program Supplies",club:"",splitSite:"",amount:String(line.quantity*line.unitPrice)}:blankLine()}),
-      requestorName:request.requester,requestorSignature:request.requesterSigned?request.requester:""});
+    const record=request as Request&{vendorAddress?:string;vendorCity?:string;vendorEmail?:string;justification?:string};
+    setForm({...base,vendor:request.vendor,vendorAddress:record.vendorAddress||"",vendorCity:record.vendorCity||"",vendorEmail:record.vendorEmail||"",
+      description:request.description,justification:record.justification||"",amount:String(request.amount),district:request.district,school:request.school,
+      siteKey:siteKeyOf(request.siteCode,request.school),siteName:request.school,siteCode:request.siteCode,fundingCode:request.fundingCode,
+      paymentType:request.paymentType||"",expenseType:request.expenseType||base.expenseType,customSite:Boolean(request.customSite),customFunding:Boolean(request.customFunding),
+      lineItems:Array.from({length:10},(_,index)=>{const line=request.lineItems[index] as (typeof request.lineItems)[number]&{expenseType?:string;club?:string;splitSite?:string}|undefined;
+        return line?{description:line.description,quantity:String(line.quantity),expenseType:line.expenseType||"Program Supplies",club:line.club||"",splitSite:line.splitSite||"",amount:String(line.quantity*line.unitPrice)}:blankLine()}),
+      requestorName:request.requester,requestorSignature:""});
     setCreating(true);
   };
 

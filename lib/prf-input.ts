@@ -1,5 +1,5 @@
 import "server-only";
-import { count, line, list, money, oneOf, optionalOneOf, optionalText } from "./sanitize";
+import { count, email as emailAddress, line, list, money, oneOf, optionalOneOf, optionalText } from "./sanitize";
 import type { DraftInput, StoredLine } from "./store";
 
 // Parses an untrusted request body into the exact shape the store accepts.
@@ -38,6 +38,9 @@ export function parseDraft(body: unknown): DraftInput {
       description: line(item.description, `Line ${index + 1} description`, 300),
       quantity: count(item.quantity ?? 1, `Line ${index + 1} quantity`),
       unitPrice: money(item.unitPrice ?? 0, `Line ${index + 1} amount`),
+      expenseType: optionalOneOf(item.expenseType, `Line ${index + 1} expense type`, EXPENSE_TYPES),
+      club: line(item.club, `Line ${index + 1} club`, 80, false),
+      splitSite: line(item.splitSite, `Line ${index + 1} site`, 80, false),
     };
   });
 
@@ -46,7 +49,13 @@ export function parseDraft(body: unknown): DraftInput {
     // optional here and required at submission instead, where the record becomes something an approver
     // is asked to authorise.
     vendor: line(payload.vendor, "Vendor", 200, false),
+    vendorAddress: line(payload.vendorAddress, "Vendor address", 200, false),
+    vendorCity: line(payload.vendorCity, "Vendor city, state, zip", 160, false),
+    // Validated only when present: a draft may not have reached this field yet, but a malformed address
+    // should be corrected while the requester is still looking at the form.
+    vendorEmail: payload.vendorEmail ? emailAddress(payload.vendorEmail, "Vendor email") : "",
     description: optionalText(payload.description, "Description", 2000),
+    justification: optionalText(payload.justification, "Justification", 2000),
     district: line(payload.district, "District", 120, false),
     school: line(payload.school, "Site", 200, false),
     siteCode: line(payload.siteCode, "Site code", 40, false),

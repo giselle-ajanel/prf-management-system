@@ -52,6 +52,16 @@ In production, identity comes from the SSO reverse proxy documented in `.env.exa
 refused unless `PRF_ALLOW_PASSWORD_LOGIN=true` is set deliberately. Roles are assigned in the store, never
 by a header: an SSO identity nobody has seen before is provisioned as a requester.
 
+## Drafts and what survives a session
+
+An open PRF editor autosaves to the server every 30 seconds, and the whole form is stored — vendor contact
+block, per-line expense type, club and split site, and the manual-coding justification, not just the
+headline fields. Signing out and the idle timeout both flush the editor first, so the boundary is the last
+thing typed rather than the last checkpoint.
+
+The one thing deliberately not restored is the signature. Signing is an act performed at submission, not a
+value that should reappear because a draft was reopened.
+
 ## Access control
 
 Authorisation lives in `lib/store.ts`, at the data-access layer, and every method takes the actor

@@ -86,6 +86,10 @@ const approver = { userId: "u-appr", email: "marcus@woodcraftrangers.org", name:
 
 const draft = (overrides = {}) => ({
   vendor: "Northstar Learning",
+  vendorAddress: "1200 Vendor Way",
+  vendorCity: "Los Angeles, CA 90015",
+  vendorEmail: "orders@northstar.example",
+  justification: "Site code entered by hand: this partnership has no FY27 workbook row yet.",
   description: "24 robotics kits for the Grade 9 after-school STEM lab, for 24 students",
   district: "District 4",
   school: "Central High School",
@@ -95,7 +99,9 @@ const draft = (overrides = {}) => ({
   expenseType: "Program Supplies",
   customSite: false,
   customFunding: false,
-  lineItems: [{ description: "Classroom robotics kit", quantity: 24, unitPrice: 325 }],
+  lineItems: [
+    { description: "Classroom robotics kit", quantity: 24, unitPrice: 325, expenseType: "Program Supplies", club: "STEM", splitSite: "7704" },
+  ],
   ...overrides,
 });
 
@@ -144,6 +150,36 @@ await check("parseDraft refuses a payment type outside the server's own list", (
 await check("parseDraft leaves documents alone when the client does not mention them", () => {
   assert.equal(S.input.parseDraft(draft()).documents, undefined);
   assert.deepEqual(S.input.parseDraft({ ...draft(), documents: ["quote.pdf"] }).documents, ["quote.pdf"]);
+});
+
+await check("a draft round-trips every field the editor holds, not just the headline ones", async () => {
+  const saved = await S.createDraft(alice, S.input.parseDraft(draft()));
+  // The vendor contact block, the justification and the per-line coding used to live only in the
+  // browser, so a session ending silently emptied them. They are part of the record now.
+  assert.equal(saved.vendorAddress, "1200 Vendor Way");
+  assert.equal(saved.vendorCity, "Los Angeles, CA 90015");
+  assert.equal(saved.vendorEmail, "orders@northstar.example");
+  assert.match(saved.justification, /^Site code entered by hand/);
+  assert.equal(saved.lineItems[0].expenseType, "Program Supplies");
+  assert.equal(saved.lineItems[0].club, "STEM");
+  assert.equal(saved.lineItems[0].splitSite, "7704");
+
+  const reread = await S.getRequest(alice, saved.id);
+  assert.equal(reread.vendorAddress, saved.vendorAddress);
+  assert.equal(reread.lineItems[0].club, "STEM");
+  await S.deleteDraft(alice, saved.id);
+});
+
+await check("a malformed vendor email is refused, and an absent one is fine", () => {
+  assert.throws(() => S.input.parseDraft(draft({ vendorEmail: "not-an-address" })), /valid email/);
+  assert.equal(S.input.parseDraft(draft({ vendorEmail: "" })).vendorEmail, "");
+});
+
+await check("a line's expense type is held to the server's own list", () => {
+  assert.throws(
+    () => S.input.parseDraft(draft({ lineItems: [{ description: "x", quantity: 1, unitPrice: 5, expenseType: "Bribes" }] })),
+    /not a permitted value/,
+  );
 });
 
 // ---- ladder and vocabulary parity with the design system -------------------------------------------

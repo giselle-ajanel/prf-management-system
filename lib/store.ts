@@ -35,7 +35,21 @@ export type StoredUser = {
   passwordHash: string;
 };
 
-export type StoredLine = { description: string; quantity: number; unitPrice: number };
+/**
+ * One line on a request.
+ *
+ * The coding fields travel with the line rather than the request: a PRF routinely splits across clubs and
+ * sites, and the printed form has a column for each. They are optional because a draft is allowed to be
+ * half-filled.
+ */
+export type StoredLine = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  expenseType?: string;
+  club?: string;
+  splitSite?: string;
+};
 export type StoredApproval = { role: string; name: string; status: string; time?: string };
 
 /** One immutable entry in a PRF's history. Never updated, never removed — see assertAppendOnly. */
@@ -53,7 +67,12 @@ export type StoredRequest = {
   ownerId: string;
   requester: string;
   vendor: string;
+  vendorAddress?: string;
+  vendorCity?: string;
+  vendorEmail?: string;
   description: string;
+  /** Why a manually entered code was used. Required by policy when the coding is not from the workbook. */
+  justification?: string;
   amount: number;
   status: Status;
   district: string;
@@ -257,7 +276,11 @@ function locate(database: Database, actor: Actor, id: string): StoredRequest {
 
 export type DraftInput = {
   vendor: string;
+  vendorAddress: string;
+  vendorCity: string;
+  vendorEmail: string;
   description: string;
+  justification: string;
   district: string;
   school: string;
   siteCode: string;
@@ -478,7 +501,11 @@ const total = (lines: StoredLine[]) =>
 function shape(input: DraftInput) {
   return {
     vendor: input.vendor,
+    vendorAddress: input.vendorAddress,
+    vendorCity: input.vendorCity,
+    vendorEmail: input.vendorEmail,
     description: input.description,
+    justification: input.justification,
     district: input.district,
     school: input.school,
     siteCode: input.siteCode,

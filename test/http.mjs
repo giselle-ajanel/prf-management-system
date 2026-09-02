@@ -215,22 +215,34 @@ await check("a cross-origin mutation is refused even with the right token", asyn
 
 // ---- the requester's own data ----------------------------------------------------------------------
 
-await check("a requester can create a draft", async () => {
+await check("a requester can create a draft, and the whole form is stored", async () => {
   const response = await call(alice, "POST", "/api/requests", {
     vendor: "Northstar Learning",
+    vendorAddress: "1200 Vendor Way",
+    vendorCity: "Los Angeles, CA 90015",
+    vendorEmail: "orders@northstar.example",
     description: "24 robotics kits for the Grade 9 after-school STEM lab",
+    justification: "Manual site code pending a workbook row.",
     district: "District 4",
     school: "Central High School",
     siteCode: "7704",
     fundingCode: "88STEM",
     paymentType: "direct",
     expenseType: "Program Supplies",
-    lineItems: [{ description: "Classroom robotics kit", quantity: 24, unitPrice: 325 }],
+    lineItems: [
+      { description: "Classroom robotics kit", quantity: 24, unitPrice: 325, expenseType: "Program Supplies", club: "STEM", splitSite: "7704" },
+    ],
   });
   assert.equal(response.status, 201);
-  assert.equal(response.body.request.status, "Draft");
-  assert.equal(response.body.request.amount, 7800);
-  alicePrf = response.body.request.id;
+  const record = response.body.request;
+  assert.equal(record.status, "Draft");
+  assert.equal(record.amount, 7800);
+  // The fields that used to live only in the browser and vanished when a session ended.
+  assert.equal(record.vendorAddress, "1200 Vendor Way");
+  assert.equal(record.vendorEmail, "orders@northstar.example");
+  assert.match(record.justification, /^Manual site code/);
+  assert.equal(record.lineItems[0].club, "STEM");
+  alicePrf = record.id;
 });
 
 await check("the server ignores client-supplied status, owner and audit fields", async () => {
