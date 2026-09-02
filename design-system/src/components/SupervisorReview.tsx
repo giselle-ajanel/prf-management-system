@@ -7,6 +7,7 @@ import { PAYMENT_LABELS, submissionDate } from "../export";
 import { PrfNumber } from "./PrfNumber";
 import { RuleBanner } from "./RuleBanner";
 import { StatusPill } from "./StatusPill";
+import { DocumentList } from "./DocumentList";
 
 export type SupervisorReviewProps = {
   request: Request;
@@ -26,6 +27,8 @@ export type SupervisorReviewProps = {
    * checklist, different words on the button.
    */
   gate?: "supervisor" | "finance";
+  /** Builds the link for an attached document. Without it the documents render as plain names. */
+  attachmentHref?: (attachment: { id: string; name: string; size: number; type: string }) => string;
   title?: string;
   approveLabel?: string;
   rejectLabel?: string;
@@ -71,6 +74,7 @@ export function SupervisorReview({
   onApprove,
   onReject,
   gate = "supervisor",
+  attachmentHref,
   checklist = gate === "finance" ? FINANCE_REVIEW_CHECKLIST : DEFAULT_REVIEW_CHECKLIST,
   title = gate === "finance" ? "Finance review" : "Review request",
   approveLabel = gate === "finance" ? "✓ Approve for Payment" : "✓ Approve & Electronically Sign",
@@ -197,15 +201,13 @@ export function SupervisorReview({
             </table>
 
             <h3>Documents</h3>
-            {request.documents.length ? (
-              request.documents.map(document => (
-                <span className="document" key={document}>
-                  ▣ {document}
-                </span>
-              ))
-            ) : (
-              <p className="muted">No documents attached — check whether a vendor quote is required.</p>
-            )}
+            {/* The receipts are the evidence behind the number above; a reviewer has to be able to open
+                them, not just see that some exist. */}
+            <DocumentList
+              attachments={request.attachments || request.documents.map(name => ({ id: name, name, size: 0, type: "" }))}
+              hrefFor={attachmentHref}
+              empty="No documents attached — check whether a vendor quote is required."
+            />
           </div>
 
           <div>

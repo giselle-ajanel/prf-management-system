@@ -14,7 +14,7 @@ import {
   deleteRequest as deletePrf, fetchNotifications, fetchRequests, financeReview, getProfile, getSession,
   isAdmin, isApprover as roleApproves, isFinance, listUsers, login, logout,
   markNotificationsRead as markRead, positionLabel, removeAttachment, saveProfile, seesRegister,
-  submitRequest as submitPrf, toViewRequest, updateRequest, uploadAttachment,
+  attachmentUrl, submitRequest as submitPrf, toViewRequest, updateRequest, uploadAttachment,
   VIEWER_LABELS,
   type DirectoryUser, type Profile, type Role, type ServerNotification, type SessionInfo,
 } from "@/lib/prf-client";
@@ -531,11 +531,12 @@ export default function PurchaseRequestHub() {
     {creating&&canRequest(role)&&<RequestForm form={form} setForm={setForm} notice={notice} noticeTone={noticeTone} accounting={accounting} accountingStatus={accountingStatus} lastSaved={lastSaved} dirty={dirty} onClose={closeEditor} onSave={()=>void saveNativeDraft()} onProceed={()=>void submitNative()}
       onDelete={editingId?()=>{const draft=requests.find(request=>request.id===editingId);if(draft)askDelete(draft)}:undefined}
       attachments={attachments} onAttach={files=>void attachFiles(files)} onRemoveAttachment={id=>void detachFile(id)}
+      attachmentHref={editingId?file=>attachmentUrl(editingId,file):undefined}
       attachmentsEnabled={Boolean(editingId)} attachmentError={attachmentError} attachmentBusy={attachmentBusy}/>}
 
     {selected&&(reviewing
-      ? <SupervisorReview gate={gate} request={selected} onClose={()=>setSelected(null)} onApprove={request=>void decide(request,"approve")} onReject={(request,note)=>void decide(request,"reject",note)}/>
-      : <RequestModal request={selected} onClose={()=>{setSelected(null);setAuditOpen(false)}} auditOpen={auditOpen} setAuditOpen={setAuditOpen} canApprove={false} onAction={()=>undefined}/>)}
+      ? <SupervisorReview gate={gate} request={selected} attachmentHref={file=>attachmentUrl(selected.id,file)} onClose={()=>setSelected(null)} onApprove={request=>void decide(request,"approve")} onReject={(request,note)=>void decide(request,"reject",note)}/>
+      : <RequestModal request={selected} attachmentHref={file=>attachmentUrl(selected.id,file)} onClose={()=>{setSelected(null);setAuditOpen(false)}} auditOpen={auditOpen} setAuditOpen={setAuditOpen} canApprove={false} onAction={()=>undefined}/>)}
     {selected&&isApprover&&<button className="financeDownload" onClick={()=>downloadFormattedPrfPdf(selected)}>Download PRF PDF ↓</button>}
 
     {pendingDelete&&<ConfirmDialog destructive title="Are you sure you want to permanently delete this draft?"

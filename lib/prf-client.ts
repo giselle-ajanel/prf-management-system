@@ -285,8 +285,13 @@ export const removeAttachment = (requestId: string, fileId: string) =>
     { method: "DELETE" },
   );
 
-export const attachmentUrl = (requestId: string, fileId: string) =>
-  `/api/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(fileId)}`;
+/**
+ * Link for one attachment. Images ask for inline so a click opens the receipt; PDFs download, which is
+ * what the server will do regardless.
+ */
+export const attachmentUrl = (requestId: string, file: { id: string; type: string }) =>
+  `/api/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(file.id)}` +
+  (file.type === "image/png" || file.type === "image/jpeg" ? "?inline=1" : "");
 
 // ---- presentation ----------------------------------------------------------------------------------
 
@@ -332,8 +337,9 @@ export function toViewRequest(wire: WireRequest): Request {
     lineItems: wire.lineItems,
     approvals: wire.approvals.map(approval => ({ ...approval, time: approval.time ? stamp(approval.time) : undefined })),
     audit,
-    // Components render document names; the ids they came from stay on the wire record.
+    // Names for anything that only wants a label; the records themselves for anything that opens them.
     documents: (wire.attachments || []).map(file => file.name),
+    attachments: wire.attachments || [],
     approvedAt: wire.approvedAt,
     submittedAt: wire.submittedAt,
     paymentType: wire.paymentType,

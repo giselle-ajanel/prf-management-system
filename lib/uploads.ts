@@ -83,7 +83,37 @@ export function validateUpload(file: { name: string; type: string; size: number 
   return { name, type: signature.type, size: bytes.length, bytes };
 }
 
+/**
+ * Where the bytes live, as three functions.
+ *
+ * The default writes files beside the store, which is right for a single machine. S3, Supabase or any
+ * blob store is a different implementation of this same shape — and because the UI, the routes and the
+ * access rules all go through the record rather than the bytes, swapping it touches nothing else.
+ */
+export type AttachmentStorage = {
+  write: (requestId: string, attachmentId: string, bytes: Buffer) => Promise<void>;
+  read: (requestId: string, attachmentId: string) => Promise<Buffer>;
+  remove: (requestId: string, attachmentId: string) => Promise<void>;
+};
+
 const attachmentDirectory = (requestId: string) => path.join(storeDirectory(), "attachments", requestId);
+
+const diskStorage: AttachmentStorage = {
+  async write(requestId, attachmentId, bytes) {
+    const directory = attachmentDirectory(requestId);
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(path.join(directory, attachmentId), bytes, { mode: 0o600 });
+  },
+  read: (requestId, attachmentId) => fs.readFile(path.join(attachmentDirectory(requestId), attachmentId)),
+  remove: (requestId, attachmentId) =>
+    fs.rm(path.join(attachmentDirectory(requestId), attachmentId), { force: true }),
+};
+
+let storage: AttachmentStorage = diskStorage;
+
+export function configureAttachmentStorage(adapter: AttachmentStorage): void {
+  storage = adapter;
+}
 
 /** Writes the bytes and returns the record that points at them. */
 export async function writeAttachment(
@@ -92,15 +122,10 @@ export async function writeAttachment(
   uploadedBy: string,
 ): Promise<StoredAttachment> {
   const id = randomUUID();
-  const directory = attachmentDirectory(requestId);
-  await fs.mkdir(directory, { recursive: true });
-  await fs.writeFile(path.join(directory, id), accepted.bytes, { mode: 0o600 });
+  await storage.write(requestId, id, accepted.bytes);
   return { id, name: accepted.name, size: accepted.size, type: accepted.type, uploadedAt: new Date().toISOString(), uploadedBy };
 }
 
-export const readAttachment = (requestId: string, attachmentId: string) =>
-  fs.readFile(path.join(attachmentDirectory(requestId), attachmentId));
+export const readAttachment = (requestId: string, attachmentId: string) => storage.read(requestId, attachmentId);
 
-export async function removeAttachment(requestId: string, attachmentId: string): Promise<void> {
-  await fs.rm(path.join(attachmentDirectory(requestId), attachmentId), { force: true });
-}
+export const removeAttachment = (requestId: string, attachmentId: string) => storage.remove(requestId, attachmentId);

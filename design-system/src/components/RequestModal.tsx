@@ -4,8 +4,11 @@ import type { Request } from "../types";
 import { money } from "../utils";
 import { PrfNumber } from "./PrfNumber";
 import { StatusPill } from "./StatusPill";
+import { DocumentList } from "./DocumentList";
 
 export type RequestModalProps = {
+  /** Builds the link for an attached document. Without it the documents render as plain names. */
+  attachmentHref?: (attachment: { id: string; name: string; size: number; type: string }) => string;
   request: Request;
   onClose: () => void;
   /** Whether the audit trail section is expanded. */
@@ -42,6 +45,7 @@ export function RequestModal({
   setAuditOpen,
   canApprove,
   onAction,
+  attachmentHref,
 }: RequestModalProps) {
   return (
     <div className="modalBackdrop">
@@ -98,15 +102,12 @@ export function RequestModal({
               </tbody>
             </table>
             <h3>Documents</h3>
-            {request.documents.length ? (
-              request.documents.map(d => (
-                <span className="document" key={d}>
-                  ▣ {d}
-                </span>
-              ))
-            ) : (
-              <p className="muted">No documents attached.</p>
-            )}
+            {/* Openable here too: this is the view an auditor uses for a request from two years ago. */}
+            <DocumentList
+              attachments={request.attachments || request.documents.map(name => ({ id: name, name, size: 0, type: "" }))}
+              hrefFor={attachmentHref}
+              empty="No documents attached."
+            />
           </div>
           <div>
             <h3>Approval path</h3>

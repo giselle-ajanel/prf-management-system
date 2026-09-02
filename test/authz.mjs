@@ -262,6 +262,38 @@ await check("a filename cannot escape its directory or carry markup", () => {
   assert.equal(S.uploads.safeFilename(""), "attachment");
 });
 
+await check("an attachment stays on the record and stays readable at every later stage", async () => {
+  const prf = await S.createDraft(alice, S.input.parseDraft(draft()));
+  const receipt = { id: "att-1", name: "Northstar quote.pdf", size: 284119, type: "application/pdf", uploadedAt: new Date().toISOString(), uploadedBy: alice.name };
+  await S.attachToRequest(alice, prf.id, receipt);
+
+  // Through submission, gate 1 and gate 2 the file travels with the record.
+  await S.submitRequest(alice, prf.id, "Alice Requester");
+  assert.equal((await S.getRequest(approver, prf.id)).attachments.length, 1, "approver cannot see the receipt at gate 1");
+  assert.equal((await S.getAttachment(approver, prf.id, "att-1")).name, receipt.name);
+
+  await S.decideRequest(approver, prf.id, { action: "approve", comment: "", signature: "Ana Rivera" });
+  assert.equal((await S.getAttachment(finance, prf.id, "att-1")).name, receipt.name, "Finance cannot open it at gate 2");
+
+  await S.financeReview(finance, prf.id, { action: "approve", comment: "", signature: "Tomas Reyes" });
+  // And afterwards, for the audit lookup that happens two years later.
+  assert.equal((await S.getAttachment(auditor, prf.id, "att-1")).name, receipt.name, "an auditor cannot open a historical receipt");
+  assert.equal((await S.getRequest(viewer, prf.id)).attachments.length, 1);
+
+  // A requester who has nothing to do with it cannot reach the file, even knowing its id.
+  await rejects(() => S.getAttachment(bob, prf.id, "att-1"), "NotFoundError");
+  // Nor is the record editable now it is final.
+  await rejects(() => S.attachToRequest(alice, prf.id, receipt), "cannot be added");
+});
+
+await check("a receipt cannot be attached to someone else's request", async () => {
+  const mine = await S.createDraft(alice, S.input.parseDraft(draft()));
+  const receipt = { id: "att-2", name: "x.pdf", size: 10, type: "application/pdf", uploadedAt: "", uploadedBy: "" };
+  await rejects(() => S.attachToRequest(bob, mine.id, receipt), "NotFoundError");
+  await rejects(() => S.attachToRequest(approver, mine.id, receipt), "NotFoundError");
+  await S.deleteDraft(alice, mine.id);
+});
+
 // ---- roles and tiers -------------------------------------------------------------------------------
 
 await check("capabilities are cumulative, and Finance holds no signing authority", () => {

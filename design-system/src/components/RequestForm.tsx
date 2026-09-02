@@ -266,6 +266,8 @@ export type RequestFormProps = {
   attachmentsEnabled?: boolean;
   attachmentError?: string;
   attachmentBusy?: boolean;
+  /** Builds the link for opening or downloading one attached document. */
+  attachmentHref?: (attachment: { id: string; name: string; size: number; type: string }) => string;
   /** Policy banners. Defaults to {@link DEFAULT_PRF_RULES}. */
   rules?: PrfRule[];
   /** Maps an accounting row's `source` to its group heading. Defaults to {@link DEFAULT_SITE_GROUPS}. */
@@ -325,6 +327,7 @@ export function RequestForm({
   attachmentsEnabled = false,
   attachmentError = "",
   attachmentBusy = false,
+  attachmentHref,
   rules = DEFAULT_PRF_RULES,
   siteGroups = DEFAULT_SITE_GROUPS,
   groupOrder = SITE_GROUP_ORDER,
@@ -709,6 +712,7 @@ export function RequestForm({
             attachments={attachments}
             onAdd={files => onAttach?.(files)}
             onRemove={id => onRemoveAttachment?.(id)}
+            hrefFor={attachmentHref}
             enabled={attachmentsEnabled && Boolean(onAttach)}
             error={attachmentError}
             busy={attachmentBusy}

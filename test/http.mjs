@@ -133,7 +133,7 @@ for (let attempt = 0; attempt < 20 && !Object.keys(credentials).length; attempt 
 const alice = jar(), maya = jar(), approver = jar(), financeUser = jar(), auditorJar = jar(), memberJar = jar(), stranger = jar();
 
 await check("the demo accounts were seeded across the ladder with generated passwords", () => {
-  assert.equal(credentials.REQUESTER?.length, 2);
+  assert.equal(credentials.REQUESTER?.length, 3, "requester@, plus the two named staff accounts");
   assert.equal(credentials["APPROVER/MANAGER"]?.length, 1);
   assert.equal(credentials["APPROVER/DIRECTOR"]?.length, 1);
   assert.equal(credentials["APPROVER/CFO"]?.length, 1);
@@ -507,6 +507,58 @@ await check("the auditor can export the register and the other viewers cannot", 
 
   const refused = await fetch(`${base}/api/requests/export`, { headers: { cookie: jarCookie(memberJar) } });
   assert.equal(refused.status, 403);
+});
+
+
+await check("a receipt uploads, downloads, and is refused to the wrong account", async () => {
+  // A real PDF: the server checks the leading bytes, not the name.
+  const pdf = new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x25, 0x25, 0x45, 0x4f, 0x46])], { type: "application/pdf" });
+  const form = new FormData();
+  form.append("file", new File([pdf], "vendor quote.pdf", { type: "application/pdf" }));
+
+  const upload = await fetch(`${base}/api/requests/${alicePrf}/attachments`, {
+    method: "POST",
+    headers: { cookie: jarCookie(alice), "x-csrf-token": alice.csrf },
+    body: form,
+  });
+  // alicePrf is Approved by this point in the run, so the upload is correctly refused as too late.
+  assert.equal(upload.status, 409);
+
+  // Attach to a fresh draft instead, and follow it through.
+  const draft = await call(alice, "POST", "/api/requests", {
+    vendor: "Northstar", description: "Robotics kits for the STEM lab", district: "District 4",
+    school: "Central High School", siteCode: "7704", fundingCode: "88STEM",
+    lineItems: [{ description: "Kit", quantity: 1, unitPrice: 120 }],
+  });
+  const id = draft.body.request.id;
+
+  const form2 = new FormData();
+  form2.append("file", new File([pdf], "vendor quote.pdf", { type: "application/pdf" }));
+  const added = await fetch(`${base}/api/requests/${id}/attachments`, {
+    method: "POST", headers: { cookie: jarCookie(alice), "x-csrf-token": alice.csrf }, body: form2,
+  });
+  assert.equal(added.status, 201);
+  const fileId = (await added.json()).attachment.id;
+
+  // The owner downloads it as an attachment, never inline.
+  const mine = await fetch(`${base}/api/requests/${id}/attachments/${fileId}`, { headers: { cookie: jarCookie(alice) } });
+  assert.equal(mine.status, 200);
+  assert.match(mine.headers.get("content-type") || "", /application\/pdf/);
+  assert.match(mine.headers.get("content-disposition") || "", /^attachment/);
+  // A PDF stays an attachment even when inline is asked for.
+  const forced = await fetch(`${base}/api/requests/${id}/attachments/${fileId}?inline=1`, { headers: { cookie: jarCookie(alice) } });
+  assert.match(forced.headers.get("content-disposition") || "", /^attachment/);
+
+  // Another requester cannot reach it, knowing both ids.
+  const theirs = await fetch(`${base}/api/requests/${id}/attachments/${fileId}`, { headers: { cookie: jarCookie(maya) } });
+  assert.equal(theirs.status, 404);
+  // Nor can a signed-out visitor.
+  assert.equal((await fetch(`${base}/api/requests/${id}/attachments/${fileId}`)).status, 401);
+
+  // Submitted, the approver reviewing it can open the receipt.
+  await call(alice, "POST", `/api/requests/${id}/submit`, { signature: "Giselle Ajanel" });
+  const reviewer = await fetch(`${base}/api/requests/${id}/attachments/${fileId}`, { headers: { cookie: jarCookie(approver) } });
+  assert.equal(reviewer.status, 200);
 });
 
 // ---- sign-out --------------------------------------------------------------------------------------

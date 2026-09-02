@@ -79,3 +79,23 @@
 .demoAccounts li button:hover{border-color:var(--teal)!important;background:#fff!important}
 .demoAccounts li strong{font-size:12.5px}
 .demoAccounts li span{color:var(--muted);font-size:11px;font-weight:500}
+
+/* Attached documents, shown identically in the editor, the review screen and the record. */
+.documentList{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:7px}
+.documentList li{
+  display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;
+  padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);
+}
+.documentList a,.documentStatic{
+  display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;
+  min-width:0;color:inherit;text-decoration:none;
+}
+.documentList a:hover .documentName{text-decoration:underline;color:var(--teal-dark)}
+.documentIcon{color:var(--teal);font-size:14px;line-height:1}
+.documentName{font-size:12.5px;overflow-wrap:anywhere}
+.documentSize{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.documentRemove{
+  border:0!important;background:none!important;box-shadow:none!important;padding:4px 6px!important;
+  color:var(--muted)!important;font-size:11px!important;font-weight:700!important;
+}
+.documentRemove:hover{color:#9a3928!important}

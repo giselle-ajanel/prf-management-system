@@ -1,19 +1,20 @@
 "use client";
 
 import { useRef, useState, type DragEvent } from "react";
+import { DocumentList, fileSize, type AttachmentRef } from "./DocumentList";
 
-export type AttachmentSummary = {
-  id: string;
-  name: string;
-  size: number;
-  type: string;
-};
+/** Kept as an alias so existing callers and their prop types are undisturbed. */
+export type AttachmentSummary = AttachmentRef;
+
+export { fileSize };
 
 export type AttachmentZoneProps = {
   attachments: AttachmentSummary[];
   /** Called with the chosen files. The caller uploads them and refreshes `attachments`. */
   onAdd: (files: File[]) => void;
   onRemove: (id: string) => void;
+  /** Builds the link for opening or downloading one attachment. Omit for a list with no links. */
+  hrefFor?: (attachment: AttachmentRef) => string;
   /** False before the draft exists — there is nothing to attach a file to yet. */
   enabled?: boolean;
   /** Failure text from the last upload attempt. */
@@ -25,13 +26,6 @@ export const ACCEPTED_UPLOADS = ".pdf,.png,.jpg,.jpeg";
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED = ["application/pdf", "image/png", "image/jpeg"];
 
-/** 1 decimal place up to MB, which is as precise as anyone needs to read a receipt's size. */
-export function fileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /**
  * The supporting-documentation zone: receipts, vendor quotes, invoices, W-9s.
  *
@@ -42,7 +36,7 @@ export function fileSize(bytes: number): string {
  * <AttachmentZone attachments={files} onAdd={upload} onRemove={remove} enabled={Boolean(draftId)} />
  * ```
  */
-export function AttachmentZone({ attachments, onAdd, onRemove, enabled = true, error = "", busy = false }: AttachmentZoneProps) {
+export function AttachmentZone({ attachments, onAdd, onRemove, hrefFor, enabled = true, error = "", busy = false }: AttachmentZoneProps) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [rejected, setRejected] = useState("");
@@ -107,19 +101,12 @@ export function AttachmentZone({ attachments, onAdd, onRemove, enabled = true, e
         </p>
       )}
 
-      {attachments.length > 0 && (
-        <ul className="attachmentList">
-          {attachments.map(file => (
-            <li key={file.id}>
-              <span className="attachmentName">{file.name}</span>
-              <span className="attachmentSize">{fileSize(file.size)}</span>
-              <button type="button" className="linkButton" onClick={() => onRemove(file.id)} aria-label={`Remove ${file.name}`}>
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <DocumentList
+        attachments={attachments}
+        hrefFor={hrefFor}
+        onRemove={enabled ? onRemove : undefined}
+        empty="Nothing attached yet."
+      />
     </section>
   );
 }

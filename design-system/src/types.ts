@@ -59,6 +59,8 @@ export type Request = {
   approvals: Approval[];
   audit: AuditEvent[];
   documents: string[];
+  /** Attached receipts and quotes, with the ids needed to open them. */
+  attachments?: { id: string; name: string; size: number; type: string }[];
   approvedAt?: string;
   /** ISO timestamp of submission for approval. Distinct from `updated`, which is display text. */
   submittedAt?: string;

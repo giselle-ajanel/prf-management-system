@@ -12,15 +12,19 @@ export const dynamic = "force-dynamic";
 // The download is gated by the same visibility rule as the PRF itself, so a receipt is readable by its
 // author, by anyone with signing authority, and by Finance — and by nobody else, even with the file's id.
 
-export const GET = authenticated({ name: "attachments.read" }, async ({ session, params }) => {
+export const GET = authenticated({ name: "attachments.read" }, async ({ session, request, params }) => {
   const requestId = parseId(params.id, "Request id");
   const attachment = await getAttachment(session, requestId, parseId(params.fileId, "File id"));
   const bytes = await readAttachment(requestId, attachment.id);
+  // An image may be shown in the browser; a PDF is always downloaded. A PDF can carry script, and there is
+  // nothing to gain from rendering one inside this application's own origin — the sandbox header below
+  // blocks it anyway, which would simply produce a blank tab.
+  const previewable = attachment.type === "image/png" || attachment.type === "image/jpeg";
+  const inline = previewable && request.nextUrl.searchParams.get("inline") === "1";
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
       "Content-Type": attachment.type,
-      // inline would let a crafted file render in the site's own origin; attachments always download.
-      "Content-Disposition": `attachment; filename="${attachment.name.replace(/"/g, "")}"`,
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${attachment.name.replace(/"/g, "")}"`,
       "Content-Length": String(attachment.size),
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
