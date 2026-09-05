@@ -18,6 +18,7 @@ import {
   detachFromRequest,
   financeReview,
   findUserByEmail,
+  getAttachment,
   getRequest,
   listAccountLog,
   listNotifications,
@@ -32,10 +33,66 @@ import {
   type StoredUser,
 } from "../lib/store";
 import { parseDraft, decisionAction } from "../lib/prf-input";
+import { configureAttachmentStorage, removeAttachment, validateUpload, writeAttachment } from "../lib/uploads";
 import { FieldError, id as parseId, line, optionalText, email as parseEmail } from "../lib/sanitize";
 
 const KEY = "prf-offline-demo-v1";
 const SESSION_KEY = "prf-offline-session";
+const FILE_PREFIX = "prf-offline-file-";
+
+/**
+ * Receipts, in browser storage.
+ *
+ * The server writes the bytes to disk; there is no disk here, so they are base64 in localStorage under one
+ * key per file. That is the whole difference — validation, the record, and who may open a receipt all run
+ * through the same code as the server.
+ *
+ * The ceiling is lower than the server's 10 MB for an unavoidable reason: base64 costs a third again in
+ * size, and a browser gives an origin only a few megabytes in total. A demo that accepted a 10 MB scan
+ * would fail on the second one, which is worse than saying so up front.
+ */
+export const DEMO_MAX_UPLOAD_BYTES = 1_500_000;
+
+const toBase64 = (bytes: Uint8Array) => {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+  return btoa(binary);
+};
+
+const fromBase64 = (value: string) => Uint8Array.from(atob(value), character => character.charCodeAt(0));
+
+configureAttachmentStorage({
+  async write(requestId, attachmentId, bytes) {
+    try {
+      window.localStorage.setItem(`${FILE_PREFIX}${requestId}:${attachmentId}`, toBase64(bytes));
+    } catch {
+      throw new FieldError("File", "This browser has run out of space for demo attachments. Remove one and try again.");
+    }
+  },
+  async read(requestId, attachmentId) {
+    const stored = window.localStorage.getItem(`${FILE_PREFIX}${requestId}:${attachmentId}`);
+    if (!stored) throw new Error("That file is not in this browser's storage");
+    return fromBase64(stored);
+  },
+  async remove(requestId, attachmentId) {
+    window.localStorage.removeItem(`${FILE_PREFIX}${requestId}:${attachmentId}`);
+  },
+});
+
+// Links are navigations, not fetches, so the interception below cannot serve one. Attachments get a blob
+// URL built from the stored bytes instead — created once per file and kept, so a second click still works.
+const blobUrls = new Map<string, string>();
+
+function attachmentBlobUrl(requestId: string, file: { id: string; type: string }): string {
+  const key = `${requestId}:${file.id}`;
+  const existing = blobUrls.get(key);
+  if (existing) return existing;
+  const stored = window.localStorage.getItem(`${FILE_PREFIX}${key}`);
+  if (!stored) return "#";
+  const url = URL.createObjectURL(new Blob([fromBase64(stored)], { type: file.type || "application/octet-stream" }));
+  blobUrls.set(key, url);
+  return url;
+}
 
 /** Demo passwords are a fixed word here: there is no server to hash against and nothing real to protect. */
 export const DEMO_PASSWORD = "demo";
@@ -97,7 +154,7 @@ const failed = (error: unknown) => {
   return ok({ error: named?.message || "Something went wrong", field: named?.field }, status);
 };
 
-type Handler = (context: { actor: Actor | null; body: Json; id: string; fileId: string; url: URL }) => Promise<Response>;
+type Handler = (context: { actor: Actor | null; body: Json; form: FormData | null; id: string; fileId: string; url: URL }) => Promise<Response>;
 
 /** Routes an /api/... path to the store, mirroring what the real route handlers do. */
 const ROUTES: { method: string; pattern: RegExp; auth: boolean; run: Handler }[] = [
@@ -151,8 +208,36 @@ const ROUTES: { method: string; pattern: RegExp; auth: boolean; run: Handler }[]
   },
   { method: "GET", pattern: /^\/api\/requests\/([^/]+)\/attachments$/, auth: true, run: async ({ actor, id }) => ok({ attachments: (await getRequest(actor!, parseId(id, "Request id"))).attachments }) },
   {
+    // Multipart, exactly as the real route: the file is validated on its own bytes before anything is kept.
+    method: "POST", pattern: /^\/api\/requests\/([^/]+)\/attachments$/, auth: true,
+    run: async ({ actor, id, form }) => {
+      const file = form?.get("file");
+      if (!(file instanceof File)) throw new FieldError("File", "Choose a file to attach.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const accepted = validateUpload({ name: file.name, type: file.type, size: file.size }, bytes, DEMO_MAX_UPLOAD_BYTES);
+      const stored = await writeAttachment(parseId(id, "Request id"), accepted, actor!.name);
+      const request = await attachToRequest(actor!, parseId(id, "Request id"), stored);
+      return ok({ request, attachment: stored }, 201);
+    },
+  },
+  {
+    method: "GET", pattern: /^\/api\/requests\/([^/]+)\/attachments\/([^/]+)$/, auth: true,
+    run: async ({ actor, id, fileId }) => {
+      // Access is decided by the same rule as the record itself, so a receipt is readable by exactly the
+      // people who can open the PRF it belongs to.
+      const attachment = await getAttachment(actor!, parseId(id, "Request id"), fileId);
+      return ok({ attachment });
+    },
+  },
+  {
     method: "DELETE", pattern: /^\/api\/requests\/([^/]+)\/attachments\/([^/]+)$/, auth: true,
-    run: async ({ actor, id, fileId }) => { await detachFromRequest(actor!, parseId(id, "Request id"), fileId); return ok({ deleted: true }); },
+    run: async ({ actor, id, fileId }) => {
+      const removed = await detachFromRequest(actor!, parseId(id, "Request id"), fileId);
+      // Drop the bytes as well, or browser storage fills with files no record points at any more.
+      await removeAttachment(parseId(id, "Request id"), removed.id);
+      blobUrls.delete(`${id}:${removed.id}`);
+      return ok({ deleted: true });
+    },
   },
   { method: "GET", pattern: /^\/api\/notifications$/, auth: true, run: async ({ actor }) => ok({ notifications: await listNotifications(actor!) }) },
   { method: "POST", pattern: /^\/api\/notifications$/, auth: true, run: async ({ actor }) => { await markNotificationsRead(actor!); return ok({ read: true }); } },
@@ -183,6 +268,13 @@ const ROUTES: { method: string; pattern: RegExp; auth: boolean; run: Handler }[]
 
 /** Installs the in-tab backend. Anything that is not an /api/ call falls through to the real fetch. */
 export function installOfflineApi(demoAccounts: { label: string; email: string; password: string }[]): void {
+  const scope = globalThis as {
+    __PRF_ATTACHMENT_URL__?: (requestId: string, file: { id: string; type: string }) => string;
+    __PRF_MAX_UPLOAD__?: number;
+  };
+  scope.__PRF_ATTACHMENT_URL__ = attachmentBlobUrl;
+  scope.__PRF_MAX_UPLOAD__ = DEMO_MAX_UPLOAD_BYTES;
+
   const original = window.fetch?.bind(window);
 
   window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -202,16 +294,17 @@ export function installOfflineApi(demoAccounts: { label: string; email: string; 
     try {
       const match = route.pattern.exec(url.pathname) || [];
       let body: Json = {};
-      if (init?.body && typeof init.body === "string") {
+      let form: FormData | null = null;
+      if (init?.body instanceof FormData) form = init.body;
+      else if (init?.body && typeof init.body === "string") {
         try { body = JSON.parse(init.body) as Json; } catch { body = {}; }
       }
       const actor = await currentActor();
       if (route.auth && !actor) return ok({ error: "Authentication required", authenticated: false }, 401);
-      return await route.run({ actor, body, id: match[1] || "", fileId: match[2] || "", url });
+      return await route.run({ actor, body, form, id: match[1] || "", fileId: match[2] || "", url });
     } catch (error) {
       return failed(error);
     }
   }) as typeof window.fetch;
 
-  void FieldError; // referenced so the import survives tree-shaking in every build mode
 }

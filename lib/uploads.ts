@@ -51,7 +51,9 @@ export function safeFilename(value: unknown): string {
   return cleaned || "attachment";
 }
 
-export type AcceptedUpload = { name: string; type: string; size: number; bytes: Buffer };
+// Uint8Array rather than Buffer throughout: Node's Buffer is one, and the offline build runs this exact
+// code in a browser, where Buffer does not exist.
+export type AcceptedUpload = { name: string; type: string; size: number; bytes: Uint8Array };
 
 /**
  * Validates one uploaded file, or throws FieldError with a sentence the requester can act on.
@@ -59,7 +61,12 @@ export type AcceptedUpload = { name: string; type: string; size: number; bytes: 
  * Runs on the server. The browser performs the same checks before uploading so people get an immediate
  * answer, but nothing is trusted from there — this is the copy that decides.
  */
-export function validateUpload(file: { name: string; type: string; size: number }, bytes: Buffer): AcceptedUpload {
+export function validateUpload(
+  file: { name: string; type: string; size: number },
+  bytes: Uint8Array,
+  /** Lower ceiling for a constrained target — the offline demo keeps its files in browser storage. */
+  maxBytes: number = MAX_UPLOAD_BYTES,
+): AcceptedUpload {
   const name = safeFilename(file.name);
   const extension = (name.match(/\.[A-Za-z0-9]+$/)?.[0] || "").toLowerCase();
 
@@ -67,8 +74,9 @@ export function validateUpload(file: { name: string; type: string; size: number 
     throw new FieldError("File", `${name} is a program or script and cannot be attached.`);
   }
   if (!bytes.length) throw new FieldError("File", `${name} is empty.`);
-  if (bytes.length > MAX_UPLOAD_BYTES) {
-    throw new FieldError("File", `${name} is larger than 10 MB. Attach a smaller copy.`);
+  if (bytes.length > maxBytes) {
+    const limit = maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / (1024 * 1024))} MB` : `${Math.round(maxBytes / 1024)} KB`;
+    throw new FieldError("File", `${name} is larger than ${limit}. Attach a smaller copy.`);
   }
   if (!ACCEPTED_EXTENSIONS.includes(extension)) {
     throw new FieldError("File", `${name} is not a PDF, PNG, or JPG.`);
@@ -91,8 +99,8 @@ export function validateUpload(file: { name: string; type: string; size: number 
  * access rules all go through the record rather than the bytes, swapping it touches nothing else.
  */
 export type AttachmentStorage = {
-  write: (requestId: string, attachmentId: string, bytes: Buffer) => Promise<void>;
-  read: (requestId: string, attachmentId: string) => Promise<Buffer>;
+  write: (requestId: string, attachmentId: string, bytes: Uint8Array) => Promise<void>;
+  read: (requestId: string, attachmentId: string) => Promise<Uint8Array>;
   remove: (requestId: string, attachmentId: string) => Promise<void>;
 };
 

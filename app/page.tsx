@@ -14,7 +14,7 @@ import {
   deleteRequest as deletePrf, fetchNotifications, fetchRequests, financeReview, getProfile, getSession,
   isAdmin, isApprover as roleApproves, isFinance, listUsers, login, logout,
   markNotificationsRead as markRead, positionLabel, removeAttachment, saveProfile, seesRegister,
-  attachmentUrl, submitRequest as submitPrf, toViewRequest, updateRequest, uploadAttachment,
+  attachmentUrl, maxUploadBytes, submitRequest as submitPrf, toViewRequest, updateRequest, uploadAttachment,
   VIEWER_LABELS,
   type DirectoryUser, type Profile, type Role, type ServerNotification, type SessionInfo,
 } from "@/lib/prf-client";
@@ -532,7 +532,8 @@ export default function PurchaseRequestHub() {
       onDelete={editingId?()=>{const draft=requests.find(request=>request.id===editingId);if(draft)askDelete(draft)}:undefined}
       attachments={attachments} onAttach={files=>void attachFiles(files)} onRemoveAttachment={id=>void detachFile(id)}
       attachmentHref={editingId?file=>attachmentUrl(editingId,file):undefined}
-      attachmentsEnabled={Boolean(editingId)} attachmentError={attachmentError} attachmentBusy={attachmentBusy}/>}
+      attachmentsEnabled={Boolean(editingId)} attachmentError={attachmentError} attachmentBusy={attachmentBusy}
+      maxUploadBytes={maxUploadBytes()}/>}
 
     {selected&&(reviewing
       ? <SupervisorReview gate={gate} request={selected} attachmentHref={file=>attachmentUrl(selected.id,file)} onClose={()=>setSelected(null)} onApprove={request=>void decide(request,"approve")} onReject={(request,note)=>void decide(request,"reject",note)}/>

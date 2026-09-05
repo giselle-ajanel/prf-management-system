@@ -20,10 +20,12 @@ export type AttachmentZoneProps = {
   /** Failure text from the last upload attempt. */
   error?: string;
   busy?: boolean;
+  /** Ceiling this build enforces, in bytes. Lower for a target that keeps files in browser storage. */
+  maxBytes?: number;
 };
 
 export const ACCEPTED_UPLOADS = ".pdf,.png,.jpg,.jpeg";
-const MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED = ["application/pdf", "image/png", "image/jpeg"];
 
 /**
@@ -36,7 +38,11 @@ const ALLOWED = ["application/pdf", "image/png", "image/jpeg"];
  * <AttachmentZone attachments={files} onAdd={upload} onRemove={remove} enabled={Boolean(draftId)} />
  * ```
  */
-export function AttachmentZone({ attachments, onAdd, onRemove, hrefFor, enabled = true, error = "", busy = false }: AttachmentZoneProps) {
+export function AttachmentZone({
+  attachments, onAdd, onRemove, hrefFor, enabled = true, error = "", busy = false,
+  maxBytes = DEFAULT_MAX_BYTES,
+}: AttachmentZoneProps) {
+  const limitLabel = maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / (1024 * 1024))} MB` : `${Math.round(maxBytes / 1024)} KB`;
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [rejected, setRejected] = useState("");
@@ -48,7 +54,7 @@ export function AttachmentZone({ attachments, onAdd, onRemove, hrefFor, enabled 
     for (const file of Array.from(files)) {
       const named = /\.(pdf|png|jpe?g)$/i.test(file.name);
       if (!named || (file.type && !ALLOWED.includes(file.type))) refused.push(`${file.name} is not a PDF, PNG, or JPG`);
-      else if (file.size > MAX_BYTES) refused.push(`${file.name} is larger than 10 MB`);
+      else if (file.size > maxBytes) refused.push(`${file.name} is larger than ${limitLabel}`);
       else accepted.push(file);
     }
     setRejected(refused.join(". "));
@@ -90,7 +96,7 @@ export function AttachmentZone({ attachments, onAdd, onRemove, hrefFor, enabled 
         </button>
         <small>
           {enabled
-            ? "PDF, PNG, or JPG · up to 10 MB each"
+            ? `PDF, PNG, or JPG · up to ${limitLabel} each`
             : "Save this as an Open Draft first, then attach its documents"}
         </small>
       </div>

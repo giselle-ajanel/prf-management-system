@@ -288,10 +288,24 @@ export const removeAttachment = (requestId: string, fileId: string) =>
 /**
  * Link for one attachment. Images ask for inline so a click opens the receipt; PDFs download, which is
  * what the server will do regardless.
+ *
+ * A link is a navigation, not a fetch, so a build with no server behind it cannot serve one of these paths
+ * — the offline demo installs its own resolver that hands back a blob URL instead. Everywhere else this is
+ * the route.
  */
-export const attachmentUrl = (requestId: string, file: { id: string; type: string }) =>
-  `/api/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(file.id)}` +
-  (file.type === "image/png" || file.type === "image/jpeg" ? "?inline=1" : "");
+export const attachmentUrl = (requestId: string, file: { id: string; type: string; name?: string }) => {
+  const resolver = (globalThis as { __PRF_ATTACHMENT_URL__?: (id: string, file: { id: string; type: string }) => string })
+    .__PRF_ATTACHMENT_URL__;
+  if (resolver) return resolver(requestId, file);
+  return (
+    `/api/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(file.id)}` +
+    (file.type === "image/png" || file.type === "image/jpeg" ? "?inline=1" : "")
+  );
+};
+
+/** The upload ceiling this build enforces. The offline demo lowers it to fit browser storage. */
+export const maxUploadBytes = () =>
+  (globalThis as { __PRF_MAX_UPLOAD__?: number }).__PRF_MAX_UPLOAD__ || 10 * 1024 * 1024;
 
 // ---- presentation ----------------------------------------------------------------------------------
 

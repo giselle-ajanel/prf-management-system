@@ -14,6 +14,14 @@ anyone else.
 Everything is invented: the accounts, the sites, the requests. The sign-in password in that build is the
 word `demo`, and that is deliberate — there is nothing there to protect.
 
+**Attachments in the demo.** Receipts upload, list, open and download there too, held as base64 in browser
+storage rather than as files on disk. The ceiling is **1.5 MB per file** rather than the server's 10 MB:
+base64 costs a third again in size and a browser gives an origin only a few megabytes in total, so a demo
+that accepted a 10 MB scan would fail on the second one. Validation is identical — the same check on the
+file's own leading bytes, so a renamed executable is refused there as well. One honest difference: in the
+demo the bytes sit in the visitor's own browser storage, so the access rules around them are a courtesy
+rather than a boundary. Everything in that build is, which is why it holds nothing real.
+
 `npm run build:share` writes the demo to both `share/PRF-Hub.html` and `docs/index.html`, and GitHub Pages
 serves the second one. There is no build pipeline to go wrong: the file in the repository *is* the site.
 

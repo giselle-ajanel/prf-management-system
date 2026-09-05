@@ -30,7 +30,7 @@ export const POST = authenticated(
         // Checked before reading the bytes, so an oversized upload is refused without buffering it.
         throw new FieldError("File", `${file.name} is larger than 10 MB. Attach a smaller copy.`);
       }
-      const bytes = Buffer.from(await file.arrayBuffer());
+      const bytes = new Uint8Array(await file.arrayBuffer());
       const accepted = validateUpload({ name: file.name, type: file.type, size: file.size }, bytes);
       const stored = await writeAttachment(id, accepted, session.name);
       const updated = await attachToRequest(session, id, stored);

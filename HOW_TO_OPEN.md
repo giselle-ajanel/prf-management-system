@@ -14,6 +14,10 @@ That single file *is* the whole application. You can create a request, sign and 
 supervisor, review it as Finance, and watch it move through both stages. Everything you do is saved in that
 browser, on that computer, and nowhere else.
 
+You can attach receipts too — PDFs and photos up to 1.5 MB each, kept in that browser alongside everything
+else. (The full application takes files up to 10 MB; the demo keeps them in browser storage, which is
+smaller.)
+
 It is a demonstration: the data is invented, and the accounts below are the only ones that exist in it.
 
 ---
